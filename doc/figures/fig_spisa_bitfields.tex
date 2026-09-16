@@ -1,0 +1,78 @@
+\begin{tikzpicture}[
+    scale=0.92, every node/.style={transform shape},
+    every text node part/.style={align=center},
+    field/.style={draw=black!70, thick, fill=white, minimum height=0.6cm, font=\scriptsize},
+    opfield/.style={field, fill=amber!25, draw=amber!80, font=\scriptsize\bfseries},
+    zfield/.style={field, fill=red!20, draw=red!80, font=\scriptsize\bfseries},
+    coordfield/.style={field, fill=blue!15, draw=blue!80},
+    colorfield/.style={field, fill=teal!20, draw=teal!80},
+    padfield/.style={field, fill=gray!15, draw=gray!60, font=\tiny}
+]
+
+% Bit markers on top
+\node[above, font=\tiny\bfseries] at (0.5, 6.2) {Bit 0..3};
+\node[above, font=\tiny\bfseries] at (1.3, 6.2) {4..7};
+\node[above, font=\tiny\bfseries] at (2.4, 6.2) {8..16};
+\node[above, font=\tiny\bfseries] at (3.9, 6.2) {17..25};
+\node[above, font=\tiny\bfseries] at (5.4, 6.2) {26..34};
+\node[above, font=\tiny\bfseries] at (6.9, 6.2) {35..43};
+\node[above, font=\tiny\bfseries] at (8.4, 6.2) {44..52};
+\node[above, font=\tiny\bfseries] at (9.9, 6.2) {53..61};
+\node[above, font=\tiny\bfseries] at (12.0, 6.2) {62..63};
+
+% 1. NOP
+\node[left, font=\scriptsize\bfseries] at (-0.2, 5.7) {\texttt{NOP} (0)};
+\node[opfield, minimum width=1.0cm] at (0.5, 5.7) {OP=0};
+\node[padfield, minimum width=13.0cm] at (7.5, 5.7) {Unused / Padding (0)};
+
+% 2. SETCOLOR
+\node[left, font=\scriptsize\bfseries] at (-0.2, 5.0) {\texttt{SETCOLOR} (7)};
+\node[opfield, minimum width=1.0cm] at (0.5, 5.0) {OP=7};
+\node[colorfield, minimum width=2.4cm] at (2.2, 5.0) {RGB Color [14:0]};
+\node[padfield, minimum width=10.6cm] at (8.7, 5.0) {Unused / Padding (0)};
+
+% 3. DRAWPIXEL
+\node[left, font=\scriptsize\bfseries] at (-0.2, 4.3) {\texttt{DRAWPIXEL} (1)};
+\node[opfield, minimum width=1.0cm] at (0.5, 4.3) {OP=1};
+\node[zfield, minimum width=0.6cm] at (1.3, 4.3) {Z};
+\node[coordfield, minimum width=1.5cm] at (2.4, 4.3) {$X_1$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (3.9, 4.3) {$Y_1$ [8:0]};
+\node[padfield, minimum width=8.5cm] at (9.75, 4.3) {Unused / Padding (0)};
+
+% 4. DRAWLINE
+\node[left, font=\scriptsize\bfseries] at (-0.2, 3.6) {\texttt{DRAWLINE} (2)};
+\node[opfield, minimum width=1.0cm] at (0.5, 3.6) {OP=2};
+\node[zfield, minimum width=0.6cm] at (1.3, 3.6) {Z};
+\node[coordfield, minimum width=1.5cm] at (2.4, 3.6) {$X_1$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (3.9, 3.6) {$Y_1$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (5.4, 3.6) {$X_2$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (6.9, 3.6) {$Y_2$ [8:0]};
+\node[padfield, minimum width=5.5cm] at (11.25, 3.6) {Padding (0)};
+
+% 5. DRAWTRIANGLE / DRAWTRIANGLE_F
+\node[left, font=\scriptsize\bfseries] at (-0.2, 2.9) {\texttt{DRAWTRIANGLE} (3/4)};
+\node[opfield, minimum width=1.0cm] at (0.5, 2.9) {OP=3/4};
+\node[zfield, minimum width=0.6cm] at (1.3, 2.9) {Z};
+\node[coordfield, minimum width=1.5cm] at (2.4, 2.9) {$X_1$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (3.9, 2.9) {$Y_1$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (5.4, 2.9) {$X_2$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (6.9, 2.9) {$Y_2$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (8.4, 2.9) {$X_3$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (9.9, 2.9) {$Y_3$ [8:0]};
+\node[padfield, minimum width=2.5cm] at (12.75, 2.9) {Padding};
+
+% 6. DRAWCIRCLE / DRAWCIRCLE_F
+\node[left, font=\scriptsize\bfseries] at (-0.2, 2.2) {\texttt{DRAWCIRCLE} (5/6)};
+\node[opfield, minimum width=1.0cm] at (0.5, 2.2) {OP=5/6};
+\node[zfield, minimum width=0.6cm] at (1.3, 2.2) {Z};
+\node[coordfield, minimum width=1.5cm] at (2.4, 2.2) {$X_c$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (3.9, 2.2) {$Y_c$ [8:0]};
+\node[coordfield, minimum width=1.5cm] at (5.4, 2.2) {Radius $R$};
+\node[padfield, minimum width=7.0cm] at (10.5, 2.2) {Unused / Padding (0)};
+
+% 7. SWAP_BUFFERS
+\node[left, font=\scriptsize\bfseries] at (-0.2, 1.5) {\texttt{SWAP\_BUFFERS} (8)};
+\node[opfield, minimum width=1.0cm] at (0.5, 1.5) {OP=8};
+\node[padfield, minimum width=13.0cm] at (7.5, 1.5) {Unused / Padding (0)};
+
+\end{tikzpicture}

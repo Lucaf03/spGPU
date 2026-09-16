@@ -1,0 +1,134 @@
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.0cm and 1.2cm,
+    every text node part/.style={align=center},
+    box/.style={draw=black!80, thick, rounded corners=3pt, fill=white, inner sep=5pt, font=\small},
+    pipebox/.style={box, fill=blue!8, draw=blue!60},
+    execbox/.style={box, fill=emerald!8, draw=emerald!60},
+    accbox/.style={box, fill=amber!15, draw=amber!80, minimum width=2.6cm, minimum height=0.75cm, font=\scriptsize\bfseries},
+    clipbox/.style={box, fill=red!10, draw=red!70, font=\small\bfseries},
+    bus/.style={draw=black!70, line width=1.3pt, ->},
+    sig/.style={draw=blue!70!black, thick, ->},
+    ctl/.style={draw=purple!80!black, dashed, thick, ->},
+    subframe/.style={draw=gray!60, dashed, rounded corners=6pt, inner sep=8pt}
+]
+
+% ==================== spCORE INPUTS ====================
+\node[box, fill=gray!20] (in_fifo) {
+    \textbf{From Scheduler FIFO}\\
+    \scriptsize\texttt{instr\_word[63:0]}\\
+    \scriptsize\texttt{instr\_valid}
+};
+
+% ==================== spPIPE UNIT ====================
+\begin{scope}[local bounding box=pipe_unit]
+    \node[pipebox, right=1.2cm of in_fifo, minimum width=3.4cm] (fsm_fetch) {
+        \textbf{Pipeline FSM \& Fetch}\\
+        \scriptsize States: \texttt{normal}, \texttt{drawing}, \texttt{halt}\\
+        \scriptsize Handshake: \texttt{instr\_req}
+    };
+
+    \node[pipebox, below=0.8cm of fsm_fetch, minimum width=3.4cm] (decoder) {
+        \textbf{Opcode Decoder}\\
+        \scriptsize Decodes \texttt{OP[3:0]}\\
+        \scriptsize Generates \texttt{acc\_enable\_vec[5:0]}
+    };
+
+    \node[pipebox, below=0.8cm of decoder, minimum width=3.4cm] (param_regs) {
+        \textbf{Parameter Registers}\\
+        \scriptsize $X_1, Y_1, X_2, Y_2, X_3, Y_3$ (9-bit)\\
+        \scriptsize Depth $Z$ (4-bit), Color (15-bit RGB)
+    };
+
+    \draw[bus] (in_fifo) -- (fsm_fetch);
+    \draw[sig] (fsm_fetch) -- (decoder);
+    \draw[bus] (decoder) -- (param_regs);
+\end{scope}
+\node[subframe, fit=(pipe_unit), label={[anchor=north west, font=\bfseries\color{blue!80!black}]above left:\texttt{spPIPE} (Instruction Fetch, Decode \& Registers)}] {};
+
+% ==================== ACCELERATORS (in spEXEC) ====================
+\begin{scope}[local bounding box=acc_array]
+    \node[accbox, right=2.0cm of fsm_fetch.north, anchor=north west] (acc_pixel) {
+        DRAWPIXEL Engine (0)\\
+        \tiny 1-Cycle Direct Latch
+    };
+    \node[accbox, below=0.25cm of acc_pixel] (acc_line) {
+        LINE\_ACC (1)\\
+        \tiny Bresenham Line ($\Delta X, \Delta Y$, err)
+    };
+    \node[accbox, below=0.25cm of acc_line] (acc_tri) {
+        EDGE\_FILL\_TOP\_V2 (3)\\
+        \tiny Triangle 2D Edge Cross-Products
+    };
+    \node[accbox, below=0.25cm of acc_tri] (acc_circ) {
+        CIRCLE\_ACC (4)\\
+        \tiny Midpoint Circle (8 Octants)
+    };
+    \node[accbox, below=0.25cm of acc_circ] (acc_fcirc) {
+        F\_CIRCLE\_ACC (5)\\
+        \tiny Filled Circle (Bresenham + Spans)
+    };
+\end{scope}
+
+% Routing from spPIPE to Accelerators
+\draw[ctl] (decoder.east) -- ++(0.6,0) |- node[pos=0.25, right, font=\tiny] {\texttt{acc\_enable\_vec}} (acc_pixel.west);
+\draw[ctl] (decoder.east) -- ++(0.6,0) |- (acc_line.west);
+\draw[ctl] (decoder.east) -- ++(0.6,0) |- (acc_tri.west);
+\draw[ctl] (decoder.east) -- ++(0.6,0) |- (acc_circ.west);
+\draw[ctl] (decoder.east) -- ++(0.6,0) |- (acc_fcirc.west);
+
+\draw[bus] (param_regs.east) -- ++(0.9,0) |- node[pos=0.25, right, font=\tiny] {Coords, Color} (acc_pixel.195);
+\draw[bus] (param_regs.east) -- ++(0.9,0) |- (acc_line.195);
+\draw[bus] (param_regs.east) -- ++(0.9,0) |- (acc_tri.195);
+\draw[bus] (param_regs.east) -- ++(0.9,0) |- (acc_circ.195);
+\draw[bus] (param_regs.east) -- ++(0.9,0) |- (acc_fcirc.195);
+
+% ==================== EXECUTION & ARBITRATION ====================
+\begin{scope}[local bounding box=exec_tail]
+    % Pixel Multiplexer
+    \node[box, fill=teal!15, draw=teal!80, right=1.2cm of acc_tri, minimum height=3.5cm, minimum width=1.6cm] (mux_pixel) {
+        \textbf{Candidate}\\
+        \textbf{Pixel Mux}\\
+        \tiny Selects active\\
+        \tiny accelerator\\
+        \tiny based on\\
+        \tiny\texttt{acc\_busy\_vec}
+    };
+
+    \draw[bus] (acc_pixel.east) -- (acc_pixel.east -| mux_pixel.west);
+    \draw[bus] (acc_line.east) -- (acc_line.east -| mux_pixel.west);
+    \draw[bus] (acc_tri.east) -- (mux_pixel.west);
+    \draw[bus] (acc_circ.east) -- (acc_circ.east -| mux_pixel.west);
+    \draw[bus] (acc_fcirc.east) -- (acc_fcirc.east -| mux_pixel.west);
+
+    % Completion OR Gate
+    \node[box, fill=orange!15, draw=orange!80, below=0.6cm of mux_pixel, minimum width=2.2cm] (or_finish) {
+        \textbf{OR Aggregator}\\
+        \tiny\texttt{finish\_exec <= OR(acc\_finish)}
+    };
+    \draw[sig] (or_finish.west) to[out=180, in=-90] node[below, font=\tiny] {\texttt{finish\_exec}} (fsm_fetch.south);
+
+    % Hardware Tile Clipping Unit
+    \node[clipbox, right=1.2cm of mux_pixel, minimum width=3.4cm, minimum height=1.6cm] (clip_unit) {
+        \textbf{Tile Clipping Unit}\\
+        \scriptsize $Y_{\min} = \text{tile\_index} \times 24$\\
+        \scriptsize $Y_{\max} = Y_{\min} + 23$\\
+        \scriptsize If $Y \in [Y_{\min}, Y_{\max}]$: \texttt{valid = 1}\\
+        \scriptsize Else: \texttt{pixel\_valid\_o = 0}
+    };
+    \draw[bus] (mux_pixel) -- node[above, font=\scriptsize] {$X, Y, C, Z$} node[below, font=\tiny] {\texttt{pixel\_valid\_int}} (clip_unit);
+
+    \node[box, fill=purple!15, draw=purple!80, right=1.2cm of clip_unit] (out_tile) {
+        \textbf{To Tile VRAM $i$}\\
+        \scriptsize\texttt{pixel\_x\_o[8:0]}\\
+        \scriptsize\texttt{pixel\_y\_o[8:0]}\\
+        \scriptsize\texttt{pixel\_color\_o[14:0]}\\
+        \scriptsize\texttt{pixel\_z\_o[3:0]}\\
+        \scriptsize\texttt{pixel\_valid\_o}
+    };
+    \draw[bus] (clip_unit) -- (out_tile);
+\end{scope}
+
+\node[subframe, fit=(acc_array) (exec_tail), label={[anchor=north west, font=\bfseries\color{emerald!80!black}]above left:\texttt{spEXEC} (Execution Unit, Dedicated Accelerators \& Tile Boundary Protection)}] {};
+
+\end{tikzpicture}

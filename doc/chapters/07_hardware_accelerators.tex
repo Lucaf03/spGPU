@@ -1,0 +1,104 @@
+\chapter{Hardware Primitive Accelerators}
+\label{chap:hardware_accelerators}
+
+\section{Overview of Dedicated Acceleration Engines}
+The core computational strength of spGPU resides in its suite of specialized, integer-arithmetic hardware accelerators instantiated within each \texttt{spCORE}. Rather than relying on a general-purpose ALU to execute iterative software rasterization loops, these units are synthesized directly as dedicated finite state machines and data-path pipelines.
+
+Figure~\ref{fig:accelerators} presents the internal mathematical structures and operational data paths of the key acceleration engines.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_accelerators.tex}
+}
+\caption{Mathematical Data Paths of the Hardware Accelerators: (a) Bresenham Line Unit, (b) Triangle Edge Equations Rasterizer, and (c) Filled Circle Scanline Generator.}
+\label{fig:accelerators}
+\end{figure}
+
+\section{Direct Pixel Writer (\texttt{DRAWPIXEL})}
+The \texttt{DRAWPIXEL} operation is executed as a single-cycle direct register latch. When \texttt{acc\_enable\_vec(0)} is asserted, the execution unit registers $X_1$ and $Y_1$ directly to the output buses, asserts \texttt{pixel\_valid\_wire(0) <= '1'}, and pulses \texttt{acc\_finish\_vec(0) <= '1'} in the very next clock cycle. This yields a single-cycle write latency.
+
+\section{Bresenham Line Accelerator (\texttt{line\_acc.vhd})}
+The line drawing engine implements an incremental, integer-only version of \textbf{Bresenham's Line Algorithm}. 
+
+\subsection{Mathematical Formulation and Data Path}
+Given two endpoints $(X_1, Y_1)$ and $(X_2, Y_2)$, the hardware computes:
+\begin{equation}
+\Delta X = |X_2 - X_1|, \quad \Delta Y = |Y_2 - Y_1|
+\end{equation}
+\begin{equation}
+S_x = \begin{cases} +1 & \text{if } X_1 < X_2 \\ -1 & \text{otherwise} \end{cases}, \quad S_y = \begin{cases} +1 & \text{if } Y_1 < Y_2 \\ -1 & \text{otherwise} \end{cases}
+\end{equation}
+The decision error variable is initialized as $\text{err}_0 = \Delta X - \Delta Y$.
+
+During the active \texttt{DRAW} state, the unit evaluates $e_2 = 2 \cdot \text{err}$ (computed via a zero-cost 1-bit left shift) and updates the coordinates and error accumulator in a single clock cycle:
+\begin{align}
+\text{If } e_2 > -\Delta Y: & \quad \text{err} \gets \text{err} - \Delta Y, \quad X \gets X + S_x \\
+\text{If } e_2 < \Delta X: & \quad \text{err} \gets \text{err} + \Delta X, \quad Y \gets Y + S_y
+\end{align}
+The accelerator outputs exactly \textbf{one pixel per clock cycle} along the line path until $(X, Y) = (X_2, Y_2)$, at which point it transitions to \texttt{DONE} and asserts \texttt{finish <= '1'}.
+
+\section{Midpoint Circle Accelerator (\texttt{circle\_acc.vhd})}
+The hollow circle engine implements the \textbf{Midpoint Circle Algorithm}, exploiting the 8-fold rotational and reflective symmetry of the circle.
+
+\subsection{Eight-Octant Traversal}
+Given center $(X_c, Y_c)$ and radius $R$, the decision variable is initialized to $d = 3 - 2R$. For each radial step along the first octant, the FSM traverses states \texttt{DRAW1} through \texttt{DRAW8}, emitting the eight symmetric points across eight consecutive clock cycles:
+\begin{align}
+(X_c + X, Y_c + Y), \quad (X_c - X, Y_c + Y), \quad (X_c + X, Y_c - Y), \quad (X_c - X, Y_c - Y) \\
+(X_c + Y, Y_c + X), \quad (X_c - Y, Y_c + X), \quad (X_c + Y, Y_c - X), \quad (X_c - Y, Y_c - X)
+\end{align}
+The decision parameter $d$ is subsequently updated using addition and shift operations:
+\begin{equation}
+d_{k+1} = \begin{cases}
+d_k + 4(X - Y) + 10, \quad Y \gets Y - 1 & \text{if } d_k > 0 \\
+d_k + 4X + 6 & \text{if } d_k \le 0
+\end{cases}
+\end{equation}
+The cycle repeats until $X > Y$.
+
+\section{Filled Circle Accelerator (\texttt{filled\_circle\_acc.vhd})}
+To render solid circular discs, \texttt{F\_CIRCLE\_ACC} extends the midpoint circle algorithm into a \textbf{Horizontal Span Rasterizer}.
+
+Instead of plotting isolated boundary pixels, the engine utilizes horizontal scanlines that sweep continuously between opposing symmetric octants:
+\begin{itemize}
+    \item \textbf{Vertical Octant Pair}: Sweeps horizontal index $i$ from $(X_c - X)$ to $(X_c + X)$ across the two rows $Y_c + Y$ and $Y_c - Y$.
+    \item \textbf{Horizontal Octant Pair}: Sweeps horizontal index $j$ from $(X_c - Y)$ to $(X_c + Y)$ across the two rows $Y_c + X$ and $Y_c - X$.
+\end{itemize}
+This dual-span interpolation guarantees complete geometric coverage with zero interior voids, emitting one filled pixel per clock cycle across each horizontal span.
+
+\section{Filled Triangle Rasterizer (\texttt{edge\_fill\_top\_v2.vhd})}
+The triangle fill accelerator utilizes the \textbf{Half-Space Edge Equations Method} (equivalent to 2D cross-products or barycentric orientation testing).
+
+\subsection{Bounding Box Determination (\texttt{minmax.vhd})}
+Before rasterizing, the combinational module \texttt{minmax.vhd} evaluates the 2D bounding box of the three triangle vertices:
+\begin{equation}
+X_{\min} = \min(X_1, X_2, X_3), \quad X_{\max} = \max(X_1, X_2, X_3)
+\end{equation}
+\begin{equation}
+Y_{\min} = \min(Y_1, Y_2, Y_3), \quad Y_{\max} = \max(Y_1, Y_2, Y_3)
+\end{equation}
+Rasterization scanning is strictly confined within this bounding rectangle $[X_{\min}, X_{\max}] \times [Y_{\min}, Y_{\max}]$, avoiding unnecessary computation across the rest of the canvas.
+
+\subsection{Parallel Edge Function Evaluation (\texttt{edge\_fill\_v2.vhd})}
+For any point $P = (X, Y)$, the oriented edge function $E(P)$ of the directed line segment $(X_a, Y_a) \to (X_b, Y_b)$ is defined as:
+\begin{equation}
+E(P) = (P_x - X_a)(Y_b - Y_a) - (P_y - Y_a)(X_b - X_a)
+\end{equation}
+
+Three parallel instances of \texttt{edge\_fill\_v2} compute the edge functions $W_0, W_1, W_2$ for the three edges of the triangle simultaneously:
+\begin{align}
+W_0 &= (X - X_2)(Y_3 - Y_2) - (Y - Y_2)(X_3 - X_2) \\
+W_1 &= (X - X_3)(Y_1 - Y_3) - (Y - Y_3)(X_1 - X_3) \\
+W_2 &= (X - X_1)(Y_2 - Y_1) - (Y - Y_1)(X_2 - X_1)
+\end{align}
+A fourth instance computes the reference oriented area of the full triangle:
+\begin{equation}
+\text{Area} = (X_3 - X_1)(Y_2 - Y_1) - (Y_3 - Y_1)(X_2 - X_1)
+\end{equation}
+
+\subsection{Half-Space Inclusion Test}
+A candidate point $P(X, Y)$ lies strictly inside the triangle if and only if all three edge functions have the same sign as the total oriented area:
+\begin{equation}
+P \in \triangle \iff \left(\text{sign}(W_0) = \text{sign}(\text{Area})\right) \land \left(\text{sign}(W_1) = \text{sign}(\text{Area})\right) \land \left(\text{sign}(W_2) = \text{sign}(\text{Area})\right)
+\end{equation}
+When this condition evaluates true, \texttt{pixel\_valid <= '1'} is asserted and the pixel is written to VRAM. The rasterizer then advances $X \gets X + 1$; upon reaching $X_{\max}$, it resets $X \gets X_{\min}$ and increments $Y \gets Y + 1$ until the entire bounding box has been processed.

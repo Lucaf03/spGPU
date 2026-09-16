@@ -1,0 +1,83 @@
+\chapter{Single-Core Microarchitecture (\texttt{spCORE})}
+\label{chap:core_microarchitecture}
+
+\section{Structural Overview of the Compute Core}
+Each of the ten identical graphics processing units (\textbf{\texttt{spCORE}}) instantiated in the top-level entity is designed as a modular, decoupled processing engine. As shown in Figure~\ref{fig:single_core}, \texttt{spCORE} is internally divided into two primary sub-blocks:
+\begin{enumerate}
+    \item \textbf{\texttt{spPIPE}} (\textit{Instruction Pipeline, Fetch, Decode \& Registers}): Manages the core command interface, decodes 64-bit spISA words, latches vertex and color parameters into dedicated registers, and orchestrates the core execution state machine.
+    \item \textbf{\texttt{spEXEC}} (\textit{Execution Unit, Dedicated Accelerators \& Tile Boundary Protection}): Houses the parallel hardware rasterization engines, arbitrates the generated pixel streams, handles swap handshaking, and enforces hard spatial clipping boundaries for the tile.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_single_core.tex}
+}
+\caption{Microarchitecture of the Single Graphics Core (\texttt{spCORE}).}
+\label{fig:single_core}
+\end{figure}
+
+\section{Pipeline Control and Decode Unit (\texttt{spPIPE.vhd})}
+The \texttt{spPIPE} block is responsible for synchronizing instruction ingestion with accelerator availability.
+
+\subsection{Pipeline Finite State Machine}
+The pipeline controller is governed by an FSM with three operational states:
+\begin{itemize}
+    \item \texttt{normal}: The core asserts \texttt{instr\_req <= '1'} toward its dedicated scheduler FIFO. When \texttt{instr\_valid} is sampled high, the 64-bit instruction word is latched. The opcode decoder evaluates bits \texttt{[3:0]}:
+    \begin{itemize}
+        \item If \texttt{NOP}, parameters are cleared and the core remains in \texttt{normal}.
+        \item If \texttt{SETCOLOR}, the 15-bit color field is stored in the internal color register \texttt{color\_int} and the state remains \texttt{normal}.
+        \item If a drawing primitive or \texttt{SWAP\_BUFFERS} is detected, the corresponding accelerator enable line in \texttt{acc\_enable\_vec[5:0]} is pulsed, the busy mask \texttt{acc\_busy\_vec} is set, and the FSM transitions to \texttt{drawing}.
+    \end{itemize}
+    \item \texttt{drawing}: In this state, \texttt{instr\_req} is held low to stall further instruction fetching. The core remains in \texttt{drawing} until the execution unit signals completion via \texttt{finish\_exec = '1'}, at which point the state transitions back to \texttt{normal}.
+    \item \texttt{halt}: An asynchronous stall state entered whenever the external signal \texttt{core\_halt} is asserted.
+\end{itemize}
+
+\subsection{Parameter Registration}
+During decode, the packed bitfields of the instruction word are extracted and registered into dedicated 9-bit coordinate buses: $(X_1, Y_1)$, $(X_2, Y_2)$, $(X_3, Y_3)$, depth $Z$, and the active 15-bit RGB color.
+
+\section{Execution Unit and Tile Boundary Protection (\texttt{spEXEC.vhd})}
+The \texttt{spEXEC} module interfaces the control signals from \texttt{spPIPE} to the physical rasterization engines.
+
+\subsection{Candidate Pixel Multiplexing and Completion Aggregation}
+When a drawing primitive is active, its corresponding hardware accelerator outputs a continuous stream of candidate pixels $(X, Y, \text{Color})$ qualified by an individual \texttt{pixel\_valid} flag. The multiplexer process \texttt{pixel\_out\_proc} routes the active accelerator's outputs to the internal bus based on \texttt{acc\_busy\_vec}.
+
+Simultaneously, the completion signals from all six accelerators and the swap controller are logically OR-ed to generate \texttt{finish\_exec}:
+\begin{equation}
+\texttt{finish\_exec} = \bigvee_{k=0}^{5} \texttt{acc\_finish\_vec}(k) \lor \texttt{finish\_swap}
+\end{equation}
+This single-cycle pulse informs \texttt{spPIPE} that the primitive has been completely rasterized, allowing the core to fetch the next instruction from its FIFO.
+
+\subsection{Hardware Tile Clipping Unit}
+While the upstream scheduler restricts instruction dispatch to overlapping tiles, primitives that cross multiple tiles will naturally produce pixels outside the vertical bounds of any single tile. 
+
+To prevent out-of-bounds pixels from contaminating adjacent tile memory blocks or causing address wrap-around, \texttt{spEXEC} implements a dedicated, zero-latency \textbf{Tile Clipping Process} (\texttt{pixel\_clip\_proc}):
+\begin{lstlisting}[language=VHDL, caption={Tile Boundary Enforcement in \texttt{spEXEC.vhd}.}, label={lst:tile_clipping}]
+pixel_clip_proc : process(pixel_x_int, pixel_y_int, pixel_color_int, z_i, pixel_valid_int, tile_index)
+    variable x_coord, y_coord : integer;
+    variable y_min, y_max     : integer;
+begin
+    x_coord := to_integer(unsigned(pixel_x_int));
+    y_coord := to_integer(unsigned(pixel_y_int));
+    
+    y_min := to_integer(unsigned(tile_index)) * 24;
+    y_max := y_min + 23;
+    
+    pixel_x_o     <= pixel_x_int;
+    pixel_y_o     <= pixel_y_int;
+    pixel_color_o <= pixel_color_int;
+    pixel_z_o     <= z_i;
+    
+    if pixel_valid_int = '1' then
+        if (x_coord >= 0 and x_coord < 320) and (y_coord >= y_min and y_coord <= y_max) then
+            pixel_valid_o <= '1';
+        else
+            pixel_valid_o <= '0'; -- Zero-overhead hardware suppression
+        end if;
+    else
+        pixel_valid_o <= '0';
+    end if;
+end process pixel_clip_proc;
+\end{lstlisting}
+
+If a candidate pixel's $Y$ coordinate satisfies $Y \in [i \times 24, i \times 24 + 23]$, it is written into VRAM. If it falls outside this 24-line boundary, \texttt{pixel\_valid\_o} is driven to \texttt{'0'}, silently discarding the pixel without interrupting the accelerator pipeline.

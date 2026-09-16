@@ -1,0 +1,17 @@
+\chapter{Conclusion}
+\label{chap:conclusion}
+
+The \textbf{spGPU} project represents a comprehensive and rigorous implementation of a modern, multicore, tile-based 2D/2.5D graphics processing unit synthesized on an FPGA System-on-Chip. 
+
+By designing every layer of the architecture from the ground up---spanning from the mathematical formulation of integer rasterization algorithms in software, through VHDL RTL modeling of parallel compute pipelines and true dual-port BRAM controllers, to low-level bare-metal ARM driver programming and physical HDMI transmission---the authors have created an exemplary demonstration of hardware/software co-design.
+
+Key engineering takeaways and achievements of spGPU include:
+\begin{enumerate}
+    \item \textbf{Spatial Multicore Scaling}: Dividing the display into 10 independent horizontal tiles ($320 \times 24$) with dedicated compute cores and localized BRAM buffers eliminated memory contention and scaled geometric rendering throughput up to $10\times$.
+    \item \textbf{Intelligent Hardware Scheduling}: Bounding box pre-decoding ensures that instructions are dispatched exclusively to the cores whose tiles overlap the primitive, preventing idle cycle waste.
+    \item \textbf{Integrated Depth Buffering and Double Buffering}: Single-cycle 4-bit hardware Z-buffering and automatic background clearing during VSYNC-locked buffer swaps deliver robust 2.5D visual layering with zero screen tearing.
+    \item \textbf{Direct Physical Interface}: Driving high-speed differential TMDS HDMI video directly from the FPGA using native \texttt{OSERDESE2} primitives at 250 Mbps per lane without external video DACs.
+    \item \textbf{Deterministic 60 FPS Pacing}: A dual-interrupt architecture connecting the hardware performance analyzer (1 Hz) and the vertical sync generator (60 Hz) directly to the ARM GIC enables rock-solid real-time animation, rigid-body physics, and telemetry logging.
+\end{enumerate}
+
+In summary, spGPU stands as a fully functional, highly optimized, and thoroughly verified custom graphics processing engine that demonstrates the full potential of FPGA technology in accelerating modern real-time visual workloads.

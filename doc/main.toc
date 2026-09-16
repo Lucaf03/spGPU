@@ -1,0 +1,84 @@
+\contentsline {chapter}{\numberline {1}Introduction and Project Overview}{6}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Academic Context and Project Scope}{6}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Target Hardware Platform}{6}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Key Architectural Specifications}{7}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Design Methodology and Toolflow}{7}{section.1.4}%
+\contentsline {chapter}{\numberline {2}System-on-Chip (SoC) Architecture and Interconnect}{8}{chapter.2}%
+\contentsline {section}{\numberline {2.1}System Partitioning: Processing System vs. Programmable Logic}{8}{section.2.1}%
+\contentsline {section}{\numberline {2.2}AXI DMA Communication Subsystem}{8}{section.2.2}%
+\contentsline {section}{\numberline {2.3}AXI4-Stream Custom Peripheral (\texttt {myaxistream\_1\_0})}{10}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}State Machine and Handshaking}{10}{subsection.2.3.1}%
+\contentsline {chapter}{\numberline {3}Instruction Set Architecture (spISA)}{11}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Instruction Set Overview}{11}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Bitfield Definitions and Allocations}{11}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Detailed Instruction Specifications}{12}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Broadcast Instructions vs. Spatial Primitives}{12}{subsection.3.3.1}%
+\contentsline {chapter}{\numberline {4}Multicore Tiling and Spatial Parallelism}{14}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Spatial Decomposition Methodology}{14}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Core-to-Tile Mapping and Coordinate Spaces}{15}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Throughput Scaling and Hardware Benefits}{15}{section.4.3}%
+\contentsline {chapter}{\numberline {5}Dynamic Instruction Scheduler}{16}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Role and Motivation of the Scheduler}{16}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Combinatorial Bounding Box Pre-Decoder}{16}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Core Range Classification and Selective Dispatching}{17}{section.5.3}%
+\contentsline {section}{\numberline {5.4}Dedicated Synchronous FIFOs and Flow Control}{17}{section.5.4}%
+\contentsline {subsection}{\numberline {5.4.1}Backpressure Mechanism}{18}{subsection.5.4.1}%
+\contentsline {chapter}{\numberline {6}Single-Core Microarchitecture (\texttt {spCORE})}{19}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Structural Overview of the Compute Core}{19}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Pipeline Control and Decode Unit (\texttt {spPIPE.vhd})}{19}{section.6.2}%
+\contentsline {subsection}{\numberline {6.2.1}Pipeline Finite State Machine}{20}{subsection.6.2.1}%
+\contentsline {subsection}{\numberline {6.2.2}Parameter Registration}{20}{subsection.6.2.2}%
+\contentsline {section}{\numberline {6.3}Execution Unit and Tile Boundary Protection (\texttt {spEXEC.vhd})}{20}{section.6.3}%
+\contentsline {subsection}{\numberline {6.3.1}Candidate Pixel Multiplexing and Completion Aggregation}{20}{subsection.6.3.1}%
+\contentsline {subsection}{\numberline {6.3.2}Hardware Tile Clipping Unit}{21}{subsection.6.3.2}%
+\contentsline {chapter}{\numberline {7}Hardware Primitive Accelerators}{22}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Overview of Dedicated Acceleration Engines}{22}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Direct Pixel Writer (\texttt {DRAWPIXEL})}{22}{section.7.2}%
+\contentsline {section}{\numberline {7.3}Bresenham Line Accelerator (\texttt {line\_acc.vhd})}{23}{section.7.3}%
+\contentsline {subsection}{\numberline {7.3.1}Mathematical Formulation and Data Path}{23}{subsection.7.3.1}%
+\contentsline {section}{\numberline {7.4}Midpoint Circle Accelerator (\texttt {circle\_acc.vhd})}{23}{section.7.4}%
+\contentsline {subsection}{\numberline {7.4.1}Eight-Octant Traversal}{23}{subsection.7.4.1}%
+\contentsline {section}{\numberline {7.5}Filled Circle Accelerator (\texttt {filled\_circle\_acc.vhd})}{23}{section.7.5}%
+\contentsline {section}{\numberline {7.6}Filled Triangle Rasterizer (\texttt {edge\_fill\_top\_v2.vhd})}{24}{section.7.6}%
+\contentsline {subsection}{\numberline {7.6.1}Bounding Box Determination (\texttt {minmax.vhd})}{24}{subsection.7.6.1}%
+\contentsline {subsection}{\numberline {7.6.2}Parallel Edge Function Evaluation (\texttt {edge\_fill\_v2.vhd})}{24}{subsection.7.6.2}%
+\contentsline {subsection}{\numberline {7.6.3}Half-Space Inclusion Test}{24}{subsection.7.6.3}%
+\contentsline {chapter}{\numberline {8}Tile Framebuffer, Double Buffering, and Hardware Z-Buffer}{25}{chapter.8}%
+\contentsline {section}{\numberline {8.1}Memory Architecture Overview}{25}{section.8.1}%
+\contentsline {section}{\numberline {8.2}True Dual-Port BRAM Organization and Double Buffering}{25}{section.8.2}%
+\contentsline {section}{\numberline {8.3}Swap Protocol and Hardware Background Auto-Clear}{26}{section.8.3}%
+\contentsline {section}{\numberline {8.4}Integrated 4-Bit Hardware Z-Buffer (Depth Test)}{26}{section.8.4}%
+\contentsline {subsection}{\numberline {8.4.1}Single-Cycle Depth Comparator}{26}{subsection.8.4.1}%
+\contentsline {section}{\numberline {8.5}Multiplier-Free Address Generation}{27}{section.8.5}%
+\contentsline {chapter}{\numberline {9}Display Controller and Physical HDMI Transmitter}{28}{chapter.9}%
+\contentsline {section}{\numberline {9.1}Video Subsystem Overview}{28}{section.9.1}%
+\contentsline {section}{\numberline {9.2}VGA Timing Generation (\texttt {counter\_pixel.vhd})}{28}{section.9.2}%
+\contentsline {section}{\numberline {9.3}Hardware $2\times $ Nearest-Neighbor Upscaling}{28}{section.9.3}%
+\contentsline {section}{\numberline {9.4}BRAM Pipeline Latency Alignment}{30}{section.9.4}%
+\contentsline {section}{\numberline {9.5}Color Expansion (RGB555 to RGB888)}{30}{section.9.5}%
+\contentsline {section}{\numberline {9.6}TMDS 8b/10b Encoders (\texttt {tmds\_encoder.vhd})}{30}{section.9.6}%
+\contentsline {section}{\numberline {9.7}Physical Serialization and Differential I/O (\texttt {serializer.vhd})}{31}{section.9.7}%
+\contentsline {chapter}{\numberline {10}Performance Analyzer and Dual-Interrupt Architecture}{32}{chapter.10}%
+\contentsline {section}{\numberline {10.1}Hardware Telemetry Subsystem (\texttt {spANALYZER.vhd})}{32}{section.10.1}%
+\contentsline {section}{\numberline {10.2}Dual-Interrupt Hardware Architecture}{32}{section.10.2}%
+\contentsline {section}{\numberline {10.3}Clock Domain Crossing for VSYNC Pulse Generation}{32}{section.10.3}%
+\contentsline {section}{\numberline {10.4}Frame Pacing and Zero-Tearing Lock}{34}{section.10.4}%
+\contentsline {chapter}{\numberline {11}Bare-Metal Software Stack and Host Driver}{35}{chapter.11}%
+\contentsline {section}{\numberline {11.1}Software Architecture Overview}{35}{section.11.1}%
+\contentsline {section}{\numberline {11.2}Low-Level AXI DMA Driver}{35}{section.11.2}%
+\contentsline {section}{\numberline {11.3}Zero-Copy Bit-Packed Instruction Mapping}{36}{section.11.3}%
+\contentsline {section}{\numberline {11.4}High-Level Drawing API}{36}{section.11.4}%
+\contentsline {section}{\numberline {11.5}Real-Time Physics Demonstration Application (\texttt {main.c})}{37}{section.11.5}%
+\contentsline {subsection}{\numberline {11.5.1}Physical Model and Collision Resolution}{37}{subsection.11.5.1}%
+\contentsline {subsection}{\numberline {11.5.2}Execution Loop and Console Output}{37}{subsection.11.5.2}%
+\contentsline {chapter}{\numberline {12}Simulation, Verification, and Tooling}{38}{chapter.12}%
+\contentsline {section}{\numberline {12.1}Verification Strategy}{38}{section.12.1}%
+\contentsline {section}{\numberline {12.2}Software Simulation Models (\texttt {software\_sim/})}{38}{section.12.2}%
+\contentsline {section}{\numberline {12.3}Interactive Visual Simulator (\texttt {simulator.c})}{39}{section.12.3}%
+\contentsline {section}{\numberline {12.4}RTL Testbench Suite and ModelSim Automation}{39}{section.12.4}%
+\contentsline {chapter}{\numberline {13}Implementation Results and Design Discussion}{40}{chapter.13}%
+\contentsline {section}{\numberline {13.1}FPGA Synthesis and Resource Utilization}{40}{section.13.1}%
+\contentsline {section}{\numberline {13.2}Clock Domain Architecture and Timing Closure}{40}{section.13.2}%
+\contentsline {section}{\numberline {13.3}Analysis of Architectural Innovations and Trade-Offs}{41}{section.13.3}%
+\contentsline {section}{\numberline {13.4}Potential Future Enhancements}{41}{section.13.4}%
+\contentsline {chapter}{\numberline {14}Conclusion}{42}{chapter.14}%

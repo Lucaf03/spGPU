@@ -1,0 +1,172 @@
+\documentclass[11pt, a4paper, oneside]{report}
+
+% ==================== PACKAGES ====================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper, margin=2.5cm, top=3cm, bottom=3cm]{geometry}
+\usepackage{lmodern}
+
+% Mathematics
+\usepackage{amsmath, amssymb, amsfonts}
+
+% Colors
+\usepackage{xcolor}
+\definecolor{primary}{RGB}{14, 116, 144}      % Cyan/Teal
+\definecolor{secondary}{RGB}{30, 41, 59}     % Slate Dark
+\definecolor{accent}{RGB}{225, 29, 72}       % Rose
+\definecolor{amber}{RGB}{245, 158, 11}
+\definecolor{emerald}{RGB}{16, 185, 129}
+\definecolor{indigo}{RGB}{99, 102, 241}
+\definecolor{slate}{RGB}{100, 116, 139}
+\definecolor{codegreen}{RGB}{46, 125, 50}
+\definecolor{codeblue}{RGB}{21, 101, 192}
+\definecolor{codegray}{RGB}{120, 144, 156}
+\definecolor{codebg}{RGB}{248, 250, 252}
+
+% TikZ & Schematics
+\usepackage{tikz}
+\usetikzlibrary{
+    shapes.geometric, 
+    arrows.meta, 
+    positioning, 
+    calc, 
+    fit, 
+    backgrounds, 
+    decorations.pathreplacing
+}
+
+% Tables
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{array}
+
+% Code Listings
+\usepackage{listings}
+\lstdefinestyle{vhdlstyle}{
+    backgroundcolor=\color{codebg},
+    commentstyle=\color{codegray}\itshape,
+    keywordstyle=\color{codeblue}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codegreen},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=7pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    frame=single,
+    rulecolor=\color{black!20}
+}
+\lstdefinestyle{cstyle}{
+    backgroundcolor=\color{codebg},
+    commentstyle=\color{codegray}\itshape,
+    keywordstyle=\color{accent}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{primary},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=7pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=4,
+    frame=single,
+    rulecolor=\color{black!20}
+}
+\lstset{style=vhdlstyle}
+
+% Headers & Footers
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{secondary}\textbf{spGPU}: 2D/2.5D Multicore FPGA GPU}
+\fancyhead[R]{\small\color{secondary}\nouppercase{\leftmark}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Hyperref
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    citecolor=emerald,
+    urlcolor=accent,
+    pdfauthor={Luca Filogna and Valerio Cilento},
+    pdftitle={spGPU: Complete Architecture and System Documentation},
+    pdfsubject={Hardware/Software Co-Design of a 2D/2.5D Multicore GPU on FPGA}
+}
+
+% Title formatting
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{secondary}}
+  {\filleft\Huge\color{primary}\chaptertitlename\ \thechapter}
+  {4ex}
+  {\titlerule[1.5pt]\vspace{2ex}\filright}
+  [\vspace{2ex}\titlerule]
+
+% ==================== DOCUMENT METADATA ====================
+\title{
+    \vspace{-2.0cm}
+    \Huge\textbf{\color{primary}spGPU: Architecture and System Specification}\\[0.4cm]
+    \LARGE\textbf{Design, Implementation, and Evaluation of a 2D/2.5D Multicore Tiled Graphics Processing Unit on FPGA SoC}\\[0.8cm]
+    \large Digital Signal Processing (DSP) Course Project\\
+    Sapienza University of Rome
+}
+
+\author{
+    \textbf{Luca Filogna} \quad \& \quad \textbf{Valerio Cilento}\\[0.2cm]
+    \textit{Faculty of Information Engineering, Computer Science and Statistics}\\
+    \textit{Department of Information Engineering, Electronics and Telecommunications (DIET)}\\
+    \textit{Sapienza University of Rome, Italy}
+}
+
+\date{\textbf{Academic Year 2025--2026}\\[0.4cm] \small Revision 2.1 -- Full System Documentation}
+
+% ==================== DOCUMENT BODY ====================
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report provides a comprehensive architectural and engineering specification of \textbf{spGPU}, a custom, high-performance 2D/2.5D multicore Graphics Processing Unit implemented on a Xilinx Zynq-7000 All-Programmable System-on-Chip (SoC) hosted on the Digilent PYNQ-Z1 development board. 
+
+spGPU adopts a spatially partitioned, tile-based architecture comprising ten independent compute cores (\texttt{spCORE}) executing in parallel at $100.0\,\text{MHz}$. Each core is tightly coupled to a dedicated on-chip True Dual-Port Block RAM tile ($320 \times 24$ pixels), providing a total rendering resolution of $320 \times 240$ with 15-bit RGB555 color depth. Dedicated integer hardware rasterization engines accelerate geometric primitives, including Bresenham lines, midpoint circles, solid disc scanlines, and edge-equation triangle fills.
+
+An integrated 4-bit depth buffer (Z-buffer) is implemented in every tile memory, executing single-cycle depth comparisons to resolve occlusion and 2.5D layering autonomously. A dynamic instruction scheduler calculates primitive bounding boxes in combinational logic, streaming 64-bit spISA commands exclusively to the overlapping tile FIFOs to maximize compute efficiency. The video subsystem provides $2\times$ hardware nearest-neighbor upscaling, TMDS 8b/10b encoding, and 5:1 DDR serialization at $125.0\,\text{MHz}$ via \texttt{OSERDESE2} primitives, driving an HDMI display at $640 \times 480$ @ $60\,\text{Hz}$ with zero tearing through VSYNC-locked ping-pong double buffering. 
+
+A dual-interrupt synchronization architecture connects the GPU to an ARM Cortex-A9 host running a bare-metal Newtonian physics engine, demonstrating rock-solid 60 FPS performance verified through desktop visual co-simulation and hardware synthesis.
+\end{abstract}
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% ==================== CHAPTERS ====================
+\include{chapters/01_introduction}
+\include{chapters/02_soc_architecture}
+\include{chapters/03_isa}
+\include{chapters/04_multicore_tiling}
+\include{chapters/05_scheduler}
+\include{chapters/06_core_microarchitecture}
+\include{chapters/07_hardware_accelerators}
+\include{chapters/08_tile_memory_zbuffer}
+\include{chapters/09_hdmi_display}
+\include{chapters/10_analyzer_interrupts}
+\include{chapters/11_software_stack}
+\include{chapters/12_simulation_verification}
+\include{chapters/13_synthesis_results}
+\include{chapters/14_conclusion}
+
+\end{document}

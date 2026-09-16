@@ -1,0 +1,69 @@
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.0cm and 1.2cm,
+    every text node part/.style={align=center},
+    box/.style={draw=black!80, thick, rounded corners=3pt, fill=white, inner sep=5pt, font=\small},
+    logicbox/.style={box, fill=amber!15, draw=amber!80, minimum width=3.4cm},
+    fifobox/.style={box, fill=purple!10, draw=purple!80, minimum width=2.4cm, minimum height=0.6cm, font=\scriptsize},
+    bus/.style={draw=black!70, line width=1.3pt, ->},
+    sig/.style={draw=blue!70!black, thick, ->},
+    ctl/.style={draw=red!80!black, dashed, thick, ->}
+]
+
+% ==================== INPUT INSTRUCTION ====================
+\node[box, fill=gray!20] (axi_in) {
+    \textbf{AXI4-Stream In}\\
+    \scriptsize\texttt{instr\_word\_axi[63:0]}\\
+    \scriptsize\texttt{instr\_valid\_axi}
+};
+
+% ==================== BOUNDING BOX DECODER ====================
+\node[logicbox, right=1.2cm of axi_in] (bbox_unit) {
+    \textbf{Bounding Box Engine (\texttt{pre\_decode})}\\
+    \scriptsize Combinational Logic (Single Cycle):\\
+    \scriptsize Line: $Y_{\min} = \min(Y_1,Y_2), Y_{\max} = \max(Y_1,Y_2)$\\
+    \scriptsize Triangle: $Y_{\min} = \min(Y_1,Y_2,Y_3), Y_{\max} = \max(Y_1,Y_2,Y_3)$\\
+    \scriptsize Circle: $Y_{\min} = \text{clamp}(Y_c - R), Y_{\max} = \text{clamp}(Y_c + R)$
+};
+\draw[bus] (axi_in) -- (bbox_unit);
+
+% ==================== TILE RANGE MAPPER ====================
+\node[logicbox, fill=cyan!15, draw=cyan!80, right=1.2cm of bbox_unit] (range_mapper) {
+    \textbf{Tile Range Classifier}\\
+    \scriptsize Compares $Y_{\min}, Y_{\max}$ with \texttt{Y\_TILE\_START[0..9]}\\
+    \scriptsize Computes $v_{\text{core\_start}}$ and $v_{\text{core\_end}}$\\
+    \scriptsize\textbf{Broadcast Check}: NOP, SETCOLOR, SWAP $\to$ All Cores
+};
+\draw[bus] (bbox_unit) -- node[above, font=\scriptsize] {$Y_{\min}, Y_{\max}$} (range_mapper);
+
+% ==================== FIFO ARRAY ====================
+\node[fifobox, right=1.5cm of range_mapper, yshift=1.8cm] (fifo0) {\textbf{FIFO 0} (Core 0)};
+\node[fifobox, below=0.2cm of fifo0] (fifo1) {\textbf{FIFO 1} (Core 1)};
+\node[fifobox, below=0.2cm of fifo1] (fifo2) {\textbf{FIFO 2} (Core 2)};
+\node[font=\bfseries, below=0.15cm of fifo2] (fdots) {\dots};
+\node[fifobox, below=0.15cm of fdots] (fifo9) {\textbf{FIFO 9} (Core 9)};
+
+\draw[bus] (range_mapper.east) -- ++(0.6,0) |- node[pos=0.2, above, font=\tiny] {\texttt{fifo\_we[0]}} (fifo0.west);
+\draw[bus] (range_mapper.east) -- ++(0.6,0) |- (fifo1.west);
+\draw[bus] (range_mapper.east) -- ++(0.6,0) |- (fifo2.west);
+\draw[bus] (range_mapper.east) -- ++(0.6,0) |- node[pos=0.2, below, font=\tiny] {\texttt{fifo\_we[9]}} (fifo9.west);
+
+% ==================== BACKPRESSURE & READY GENERATION ====================
+\node[box, fill=red!10, draw=red!70, below=1.2cm of bbox_unit, xshift=1.5cm, minimum width=4.5cm] (backpress) {
+    \textbf{Backpressure \& Flow Control}\\
+    \scriptsize \texttt{unsigned(fifo\_full\_vector) /= 0}\\
+    \scriptsize Stalls AXI DMA if any FIFO is full (\texttt{instr\_req\_sc = 0})
+};
+
+\draw[ctl] (fifo9.south) |- (backpress.east);
+\draw[ctl] (backpress.west) -| node[pos=0.25, below, font=\scriptsize] {\texttt{instr\_req\_sc}} (axi_in.south);
+
+% ==================== OUTPUT TO CORES ====================
+\node[box, fill=orange!15, draw=orange!80, right=1.2cm of fifo1] (to_cores) {
+    \textbf{To 10$\times$ spCORE}\\
+    \scriptsize Independent read ports\\
+    \scriptsize Handshake: \texttt{instr\_req\_core}
+};
+\draw[bus] (fifo1.east) -- (to_cores.west);
+
+\end{tikzpicture}

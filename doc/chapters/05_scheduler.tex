@@ -1,0 +1,88 @@
+\chapter{Dynamic Instruction Scheduler}
+\label{chap:scheduler}
+
+\section{Role and Motivation of the Scheduler}
+In a tiled multicore graphics architecture, broadcasting every drawing instruction unconditionally to every core would force all cores to compute all primitives, defeating the purpose of spatial parallelism and wasting power and clock cycles.
+
+The \textbf{\texttt{spScheduler}} component acts as an intelligent hardware router. It receives the incoming stream of 64-bit instructions from the AXI-Stream interface, evaluates the geometric vertical boundaries of the target primitive in single-cycle combinatorial logic, and selectively dispatches the instruction word \textit{only} to the FIFOs of the cores whose tile areas physically intersect the shape.
+
+Figure~\ref{fig:scheduler} depicts the internal block diagram of the dynamic scheduler, including the pre-decode bounding box logic, the range classifier, the FIFO bank, and the backpressure flow control.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_scheduler.tex}
+}
+\caption{Dynamic Instruction Scheduler (\texttt{spScheduler}) Microarchitecture.}
+\label{fig:scheduler}
+\end{figure}
+
+\section{Combinatorial Bounding Box Pre-Decoder}
+During the \texttt{request} state, the process \texttt{pre\_decode} inspects the incoming opcode and vertex coordinates in purely combinational logic to determine the vertical interval $[Y_{\min}, Y_{\max}]$:
+\begin{itemize}
+    \item \textbf{Pixel (\texttt{DRAWPIXEL})}:
+    \begin{equation}
+    Y_{\min} = Y_1, \quad Y_{\max} = Y_1
+    \end{equation}
+    \item \textbf{Line (\texttt{DRAWLINE})}:
+    \begin{equation}
+    Y_{\min} = \min(Y_1, Y_2), \quad Y_{\max} = \max(Y_1, Y_2)
+    \end{equation}
+    \item \textbf{Triangles (\texttt{DRAWTRIANGLE} and \texttt{DRAWTRIANGLE\_F})}:
+    \begin{equation}
+    Y_{\min} = \min(Y_1, \min(Y_2, Y_3)), \quad Y_{\max} = \max(Y_1, \max(Y_2, Y_3))
+    \end{equation}
+    \item \textbf{Circles (\texttt{DRAWCIRCLE} and \texttt{DRAWCIRCLE\_F})}:
+    Because circular geometry can extend partially off-screen, the bounding box evaluation incorporates explicit hardware clamping to prevent unsigned underflow or overflow beyond the screen height ($240$):
+    \begin{equation}
+    Y_{\max} = \begin{cases} 
+    239 & \text{if } Y_c > (240 - R) \\ 
+    Y_c + R & \text{otherwise} 
+    \end{cases}
+    \end{equation}
+    \begin{equation}
+    Y_{\min} = \begin{cases} 
+    0 & \text{if } Y_c < R \\ 
+    Y_c - R & \text{otherwise} 
+    \end{cases}
+    \end{equation}
+\end{itemize}
+
+\section{Core Range Classification and Selective Dispatching}
+Once $[Y_{\min}, Y_{\max}]$ is computed, the scheduler evaluates the tile interval $[v_{\text{core\_start}}, v_{\text{core\_end}}]$ by comparing the bounds against the constant array \texttt{Y\_TILE\_START}:
+\begin{lstlisting}[language=VHDL, caption={Core Range Classification Logic in \texttt{spScheduler.vhd}.}, label={lst:sched_range}]
+v_core_start := 0;
+v_core_end   := 0;
+
+for i in 0 to N_cores-1 loop
+    if unsigned(y_min) >= Y_TILE_START(i) then 
+        v_core_start := i; 
+    end if;
+    if unsigned(y_max) >= Y_TILE_START(i) then 
+        v_core_end := i; 
+    end if;
+end loop;
+
+if v_core_start > v_core_end then
+    v_core_end := v_core_start;
+end if;
+\end{lstlisting}
+
+Based on this range, the scheduler directs writes to the command FIFOs:
+\begin{itemize}
+    \item \textbf{Broadcast Commands} (\texttt{NOP}, \texttt{SETCOLOR}, \texttt{SWAP\_BUFFERS}): The write enable signal \texttt{fifo\_we\_vector(i)} is asserted for \textbf{all 10 FIFOs}.
+    \item \textbf{Drawing Primitives}: The write enable is asserted \textbf{only for cores $i \in [v_{\text{core\_start}}, v_{\text{core\_end}}]$}. All other FIFOs receive write enable \texttt{'0'}.
+\end{itemize}
+
+\section{Dedicated Synchronous FIFOs and Flow Control}
+Each core is backed by an independent synchronous FIFO (\texttt{sc\_fifo.vhd}) with a parameterized depth (\texttt{FIFO\_DEPTH = 12} to $32$). These queues buffer instructions, allowing cores that finish small primitives rapidly to proceed without waiting for cores engaged in rasterizing large triangles or filled circles.
+
+\subsection{Backpressure Mechanism}
+To guarantee that fast bursts of DMA transfers never overwrite unread FIFO entries, the scheduler aggregates the full status of all 10 FIFOs:
+\begin{equation}
+\texttt{instr\_req\_sc} = \begin{cases} 
+\text{'1'} & \text{if } (\text{state} = \texttt{request}) \land \left(\sum_{i=0}^{9} \texttt{fifo\_full}(i) = 0\right) \\ 
+\text{'0'} & \text{otherwise} 
+\end{cases}
+\end{equation}
+If any FIFO in the system becomes full, the scheduler immediately deasserts \texttt{instr\_req\_sc}, causing the upstream AXI4-Stream interface to lower \texttt{s\_axis\_tready}, effectively pausing the DMA transfer until queue space becomes available.

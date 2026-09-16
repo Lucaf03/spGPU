@@ -1,0 +1,80 @@
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.0cm and 1.2cm,
+    every text node part/.style={align=center},
+    box/.style={draw=black!80, thick, rounded corners=3pt, fill=white, inner sep=5pt, font=\small},
+    membox/.style={box, fill=purple!10, draw=purple!80, minimum width=3.4cm, minimum height=1.6cm},
+    logicbox/.style={box, fill=cyan!10, draw=cyan!80, minimum width=2.8cm},
+    fsmbox/.style={box, fill=amber!15, draw=amber!80, minimum width=3.2cm},
+    bus/.style={draw=black!70, line width=1.3pt, ->},
+    sig/.style={draw=blue!70!black, thick, ->},
+    ctl/.style={draw=red!80!black, dashed, thick, ->}
+]
+
+% ==================== INPUT WRITE SIGNALS ====================
+\node[box, fill=gray!15] (in_write) {
+    \textbf{From Core $i$ (100 MHz)}\\
+    \scriptsize\texttt{x\_w[8:0]}, \texttt{y\_w[8:0]}\\
+    \scriptsize\texttt{data\_w[14:0]} (RGB555)\\
+    \scriptsize\texttt{z\_w[3:0]} (Depth)\\
+    \scriptsize\texttt{enb} (Pixel Valid)
+};
+
+% ==================== ADDRESS DECOMPOSITION ====================
+\node[logicbox, right=1.0cm of in_write, yshift=1.2cm] (addr_math) {
+    \textbf{Multiplier-Free Address}\\
+    \scriptsize $Y_{\text{local}} = Y_w - (i \times 24)$\\
+    \scriptsize $\text{Addr} = (Y_{\text{local}} \ll 8) + (Y_{\text{local}} \ll 6) + X_w$\\
+    \scriptsize No DSP48 Blocks Required!
+};
+\draw[bus] (in_write.north) |- (addr_math.west);
+
+% ==================== Z-BUFFER UNIT ====================
+\node[logicbox, fill=red!10, draw=red!70, right=1.0cm of in_write, yshift=-1.2cm] (z_unit) {
+    \textbf{Hardware Z-Buffer Comparator}\\
+    \scriptsize Read $Z_{\text{mem}} = \text{ZRAM}[\text{Addr}]$\\
+    \scriptsize \texttt{z\_pass <= (z\_w <= z\_mem)}\\
+    \scriptsize Updates ZRAM on success
+};
+\draw[bus] (in_write.south) |- (z_unit.west);
+
+% ==================== VRAM & ZRAM DUAL-PORT ====================
+\node[membox, right=1.4cm of addr_math] (vram) {
+    \textbf{Color VRAM Dual-Port}\\
+    \scriptsize $2 \times 7680 = 15360$ words $\times$ 15-bit\\
+    \scriptsize \textbf{Port A (Write)}: 100 MHz\\
+    \scriptsize \textbf{Port B (Read)}: 25 MHz
+};
+
+\node[membox, fill=red!5, draw=red!60, right=1.4cm of z_unit] (zram) {
+    \textbf{Depth ZRAM}\\
+    \scriptsize $7680 \times 4$-bit\\
+    \scriptsize Reset to \texttt{"1111"} (Furthest)
+};
+
+\draw[bus] (addr_math.east) -- node[above, font=\tiny] {Write Addr} (vram.west);
+\draw[bus] (addr_math.east) -- (zram.west);
+\draw[ctl] (z_unit.east) -- node[below, font=\tiny] {\texttt{write\_enb = enb AND z\_pass}} (vram.210);
+
+% ==================== FSM & SWAP LOGIC ====================
+\node[fsmbox, below=1.0cm of z_unit, xshift=1.5cm] (swap_fsm) {
+    \textbf{Swap \& Auto-Clear FSM}\\
+    \scriptsize State 0: Normal Drawing (Back Buffer)\\
+    \scriptsize State 1: Wait for \texttt{v\_sync = 0} (Blanking)\\
+    \scriptsize State 2: Hardware Auto-Clear to White (0x7FFF) \& $Z=15$\\
+    \scriptsize State 3: Swap Complete (\texttt{swapped = 1})
+};
+
+\draw[ctl] (swap_fsm.north) -- node[right, font=\tiny] {Buffer Inversion} (vram.south);
+\draw[ctl] (swap_fsm.north) -- (zram.south);
+
+% ==================== DISPLAY SCANNING PORT B ====================
+\node[box, fill=blue!10, draw=blue!60, right=1.5cm of vram] (disp_port) {
+    \textbf{To Display Controller}\\
+    \scriptsize\texttt{clock\_r} = 25 MHz\\
+    \scriptsize\texttt{x\_r[8:0]}, \texttt{y\_r[8:0]}\\
+    \scriptsize\texttt{data\_r[14:0]} (Front Buffer)
+};
+\draw[bus] (vram.east) -- (disp_port.west);
+
+\end{tikzpicture}

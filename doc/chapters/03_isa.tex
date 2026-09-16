@@ -1,0 +1,54 @@
+\chapter{Instruction Set Architecture (spISA)}
+\label{chap:isa}
+
+\section{Instruction Set Overview}
+The spGPU architecture defines a dedicated, fixed-length 64-bit instruction set architecture designated as \textbf{spISA}. The fixed 64-bit format was deliberately chosen to maximize data throughput over standard AXI interconnects, simplify hardware decode logic, and eliminate instruction alignment penalties.
+
+Each instruction encapsulates the operation code (\texttt{Opcode}), optional depth metadata ($Z$), geometric vertex coordinates, radius, or color attributes in a single packed data word.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_spisa_bitfields.tex}
+}
+\caption{spISA 64-Bit Instruction Word Bitfield Allocations.}
+\label{fig:spisa_bitfields}
+\end{figure}
+
+\section{Bitfield Definitions and Allocations}
+As defined in \texttt{sp-pkg.vhd} and illustrated in Figure~\ref{fig:spisa_bitfields}, the 64-bit instruction fields are structured as follows:
+\begin{itemize}
+    \item \textbf{Opcode (\texttt{OP})}: Bits \texttt{[3:0]} specify the primary operation code. An 8-bit allocation (\texttt{N\_opcode = 8}) is reserved in the hardware package to support future ISA expansions.
+    \item \textbf{Depth Coordinate ($Z$)}: Bits \texttt{[7:4]} define a 4-bit unsigned depth value for geometric drawing instructions, providing 16 discrete depth sorting layers ($0 \dots 15$). A value of $Z = 0$ represents the nearest layer to the viewer, while $Z = 15$ represents the farthest background plane.
+    \item \textbf{Pixel Coordinates ($X, Y$)}: Discrete spatial coordinates are encoded as 9-bit unsigned integer fields (\texttt{N\_pixel = 9}), providing an addressable coordinate space of $[0, 511]$, which naturally covers the $320 \times 240$ screen geometry.
+    \item \textbf{Color Value (\texttt{Color})}: Encoded as a 15-bit RGB555 integer within bits \texttt{[22:8]} of the \texttt{SETCOLOR} instruction (5 bits Red, 5 bits Green, 5 bits Blue), capable of expressing $32{,}768$ distinct colors.
+\end{itemize}
+
+\section{Detailed Instruction Specifications}
+Table~\ref{tab:spisa_summary} summarizes the complete set of supported operations in spISA.
+
+\begin{table}[htbp]
+\centering
+\caption{spISA 64-Bit Instruction Set Summary}
+\label{tab:spisa_summary}
+\begin{tabular}{@{}cclp{7.0cm}@{}}
+\toprule
+\textbf{Opcode} & \textbf{Binary} & \textbf{Mnemonic} & \textbf{Functional Description and Parameters} \\ \midrule
+$0$ & \texttt{0000} & \texttt{NOP} & No Operation. Propagated in broadcast to all cores. \\
+$1$ & \texttt{0001} & \texttt{DRAWPIXEL} & Renders a single pixel at $(X_1, Y_1)$ with depth $Z$. \\
+$2$ & \texttt{0010} & \texttt{DRAWLINE} & Renders a 1-pixel wide line segment between $(X_1, Y_1)$ and $(X_2, Y_2)$ with depth $Z$. \\
+$3$ & \texttt{0011} & \texttt{DRAWTRIANGLE} & Draws the outline of a triangle with vertices $(X_1, Y_1)$, $(X_2, Y_2)$, and $(X_3, Y_3)$ with depth $Z$. \\
+$4$ & \texttt{0100} & \texttt{DRAWTRIANGLE\_F} & Rasterizes a solid filled triangle with vertices $(X_1, Y_1)$, $(X_2, Y_2)$, and $(X_3, Y_3)$ with depth $Z$. \\
+$5$ & \texttt{0101} & \texttt{DRAWCIRCLE} & Draws the outline of a circle centered at $(X_c, Y_c)$ with radius $R$ and depth $Z$. \\
+$6$ & \texttt{0110} & \texttt{DRAWCIRCLE\_F} & Rasterizes a solid filled disk centered at $(X_c, Y_c)$ with radius $R$ and depth $Z$. \\
+$7$ & \texttt{0111} & \texttt{SETCOLOR} & Updates the active 15-bit color register in all cores to the RGB555 value encoded in bits $[22:8]$. \\
+$8$ & \texttt{1000} & \texttt{SWAP\_BUFFERS} & Global synchronization instruction. Triggers front/back buffer swap across all 10 tiles upon VSYNC. \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Broadcast Instructions vs. Spatial Primitives}
+Instructions in spISA are categorized into two fundamental operational classes:
+\begin{enumerate}
+    \item \textbf{Global Broadcast Instructions}: \texttt{NOP} (0), \texttt{SETCOLOR} (7), and \texttt{SWAP\_BUFFERS} (8). These instructions modify the global state of the rendering pipeline. Consequently, the hardware scheduler broadcasts these words unconditionally into the command FIFOs of all 10 compute cores simultaneously.
+    \item \textbf{Spatial Drawing Primitives}: \texttt{DRAWPIXEL} (1), \texttt{DRAWLINE} (2), \texttt{DRAWTRIANGLE} (3), \texttt{DRAWTRIANGLE\_F} (4), \texttt{DRAWCIRCLE} (5), and \texttt{DRAWCIRCLE\_F} (6). These primitives describe localized 2D shapes. The scheduler computes their vertical bounding boxes and dispatches the instruction only to the specific cores whose screen tiles intersect the primitive, as elaborated in Chapter~\ref{chap:scheduler}.
+\end{enumerate}

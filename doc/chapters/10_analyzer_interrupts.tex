@@ -1,0 +1,82 @@
+\chapter{Performance Analyzer and Dual-Interrupt Architecture}
+\label{chap:analyzer_interrupts}
+
+\section{Hardware Telemetry Subsystem (\texttt{spANALYZER.vhd})}
+To obtain real-time, non-intrusive measurements of GPU frame rate without skewing execution times with software timestamp queries, spGPU incorporates a dedicated hardware performance telemetry core: \textbf{\texttt{spANALYZER}}.
+
+The module operates within the $100.0\,\text{MHz}$ core clock domain and maintains two synchronous counters:
+\begin{enumerate}
+    \item \textbf{High-Precision 1-Second Timebase}: A 27-bit counter (\texttt{sync\_vector}) counts clock pulses continuously up to a terminal count of $TC = 99{,}999{,}999$. When the terminal count is reached, a 1-clock-cycle pulse \texttt{one\_sec\_elapsed} is asserted exactly once every $1.000000\,\text{s}$.
+    \item \textbf{Frame Swap Accumulator}: A 10-bit counter (\texttt{swap\_vector}) increments every time the GPU completes a full double-buffer swap (\texttt{swapped = '1'}).
+\end{enumerate}
+
+When \texttt{one\_sec\_elapsed} fires, the accumulated swap count is latched into the output register \texttt{fps\_int\_reg}, the swap accumulator is reset, and an interrupt pulse is emitted on \texttt{int\_pin}. The 10-bit \texttt{fps} value is routed through an AXI GPIO peripheral to allow instantaneous memory-mapped readout by the CPU.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_dual_interrupts.tex}
+}
+\caption{Dual-Interrupt Hardware/Software Synchronization and Frame Timing Diagram.}
+\label{fig:dual_interrupts}
+\end{figure}
+
+\section{Dual-Interrupt Hardware Architecture}
+A central innovation in the system's software-hardware co-design is the \textbf{Dual-Interrupt Synchronization Architecture}. Two distinct hardware events generate rising-edge interrupts to the ARM Generic Interrupt Controller (GIC), as mapped in Table~\ref{tab:interrupt_mapping}.
+
+\begin{table}[htbp]
+\centering
+\caption{Hardware Interrupt Mapping to ARM Cortex-A9 GIC}
+\label{tab:interrupt_mapping}
+\begin{tabular}{@{}cclp{7.0cm}@{}}
+\toprule
+\textbf{GIC IRQ ID} & \textbf{Hardware Pin} & \textbf{Trigger Mode} & \textbf{Handler Function / System Behavior} \\ \midrule
+\textbf{61} & \texttt{spANALYZER / int\_pin} & Rising Edge (\texttt{0x03}) & \texttt{Core0nIRQ\_Handler}: Fires once per second ($1\,\text{Hz}$). Reads the hardware FPS register from AXI GPIO and sets \texttt{g\_fps\_ready = 1} for console logging. \\
+\textbf{62} & \texttt{spgpu / vsync\_pin} & Rising Edge (\texttt{0x03}) & \texttt{VSync\_Handler}: Fires at display refresh rate ($60\,\text{Hz}$). Synchronized to the falling edge of VGA VSYNC, setting \texttt{g\_vsync\_occurred = 1} to unlock the physics loop. \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Clock Domain Crossing for VSYNC Pulse Generation}
+The VGA vertical synchronization signal \texttt{v\_sync\_int} originates in the $25.0\,\text{MHz}$ pixel clock domain. Connecting this asynchronous signal directly to the $100.0\,\text{MHz}$ GIC interrupt line would introduce metastability hazards and multiple trigger events.
+
+In \texttt{sp-gpu.vhd}, a double flip-flop synchronizer combined with an edge-detection filter safely transfers the signal into the $100.0\,\text{MHz}$ core domain:
+\begin{lstlisting}[language=VHDL, caption={Clock Domain Crossing and VSYNC Pulse Generator in \texttt{sp-gpu.vhd}.}, label={lst:vsync_pulse}]
+process(clk, rst)
+begin
+    if rst = '1' then
+        vsync_meta   <= '1';
+        vsync_sync   <= '1';
+        vsync_sync_d <= '1';
+        vsync_pulse  <= '0';
+    elsif rising_edge(clk) then
+        vsync_meta   <= v_sync_int;
+        vsync_sync   <= vsync_meta;
+        vsync_sync_d <= vsync_sync;
+        
+        -- Generate a single 10-ns pulse on the active-low falling edge of VSYNC
+        if vsync_sync_d = '1' and vsync_sync = '0' then
+            vsync_pulse <= '1';
+        else
+            vsync_pulse <= '0';
+        end if;
+    end if;
+end process;
+vsync_pin <= vsync_pulse;
+\end{lstlisting}
+This circuit emits an exact, single-cycle 10-nanosecond pulse at the beginning of every vertical blanking interval, ensuring clean edge-triggering within the ARM interrupt controller.
+
+\section{Frame Pacing and Zero-Tearing Lock}
+As visualized in Figure~\ref{fig:dual_interrupts}, this dual-interrupt mechanism solves the problem of frame pacing:
+\begin{enumerate}
+    \item At the start of each frame, the ARM processor invokes the blocking function \texttt{WaitForVsync()}:
+    \begin{lstlisting}[language=C, caption={Hardware VSYNC Synchronization Function in \texttt{main.c}.}, label={lst:wait_vsync}]
+    void WaitForVsync(void) {
+        while (!g_vsync_occurred) {
+            // Suspends execution until hardware IRQ 62 triggers
+        }
+        g_vsync_occurred = 0;
+    }
+    \end{lstlisting}
+    \item When IRQ 62 arrives, the CPU awakens, updates the physical positions and velocities of the scene objects with an exact time step of $\Delta t = 1/60\,\text{s} \approx 16.67\,\text{ms}$, issues the rendering commands via DMA, and calls \texttt{SwapBuffers()}.
+    \item Because the frame time budget is strictly bounded by the 60 Hz VSYNC pulse, the CPU can never outrun the display or flood the GPU command FIFOs. Rendering occurs exclusively into the back buffer, and buffer swap occurs strictly within the blanking window, yielding rock-solid $60\,\text{FPS}$ display with zero image tearing.
+\end{enumerate}

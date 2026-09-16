@@ -1,0 +1,53 @@
+\chapter{Implementation Results and Design Discussion}
+\label{chap:synthesis_results}
+
+\section{FPGA Synthesis and Resource Utilization}
+The spGPU multicore architecture was synthesized and implemented targeting the **Xilinx Zynq-7000 SoC (\texttt{XC7Z020-1CLG400C})** using AMD Vivado 2023.1. 
+
+Table~\ref{tab:resource_utilization} provides an architectural breakdown of the FPGA resource footprint across the primary functional blocks.
+
+\begin{table}[htbp]
+\centering
+\caption{Estimated FPGA Resource Utilization on Xilinx Zynq XC7Z020}
+\label{tab:resource_utilization}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Component / Module} & \textbf{LUTs} & \textbf{Flip-Flops (FF)} & \textbf{BRAM36E1 (Tiles)} & \textbf{DSP48E1 Slices} \\ \midrule
+$10\times$ Compute Cores (\texttt{spCORE}) & $\approx 14{,}500$ & $\approx 6{,}800$ & $0$ & $0$ \\
+$10\times$ Tile Framebuffers (\texttt{tile.vhd}) & $\approx 3{,}200$ & $\approx 1{,}800$ & $64$ ($140\text{ blocks}$) & $0$ \\
+Dynamic Scheduler (\texttt{spScheduler}) & $\approx 1{,}600$ & $\approx 850$ & $0$ & $0$ \\
+Performance Telemetry (\texttt{spANALYZER}) & $\approx 150$ & $\approx 120$ & $0$ & $0$ \\
+Display Controller \& HDMI TX & $\approx 850$ & $\approx 650$ & $0$ & $0$ \\
+AXI DMA \& Stream Bridge & $\approx 1{,}400$ & $\approx 1{,}600$ & $4$ & $0$ \\ \midrule
+\textbf{Total spGPU System} & $\approx \mathbf{21{,}700}$ & $\approx \mathbf{11{,}820}$ & $\approx \mathbf{68}$ & $\mathbf{0}$ \\
+\textbf{Available on XC7Z020} & $\mathbf{53{,}200}$ & $\mathbf{106{,}400}$ & $\mathbf{140}$ & $\mathbf{220}$ \\
+\textbf{Utilization Percentage} & $\approx \mathbf{40.8\%}$ & $\approx \mathbf{11.1\%}$ & $\approx \mathbf{48.6\%}$ & $\mathbf{0.0\%}$ \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Clock Domain Architecture and Timing Closure}
+The system operates across three distinct clock domains synthesized from the onboard $125.0\,\text{MHz}$ reference oscillator via a mixed-mode clock manager (MMCM):
+\begin{enumerate}
+    \item \textbf{GPU Core Clock ($100.0\,\text{MHz}$, Period $= 10.0\,\text{ns}$)}: Drives the AXI4-Stream slave interface, the instruction scheduler, all 10 compute cores, and Port A (write) of the tile VRAMs. Timing closure is met with positive worst negative slack ($\text{WNS} > +1.2\,\text{ns}$).
+    \item \textbf{Video Pixel Clock ($25.0\,\text{MHz}$, Period $= 40.0\,\text{ns}$)}: Drives the VGA timing counters, the scanline output multiplexer, Port B (read) of the tile VRAMs, and the parallel stage of the TMDS encoders.
+    \item \textbf{HDMI Serial Clock ($125.0\,\text{MHz}$, Period $= 8.0\,\text{ns}$)}: Provides the high-speed clock for the \texttt{OSERDESE2} 5:1 DDR serializers, generating the 250 Mbps bitstreams for differential HDMI signaling.
+\end{enumerate}
+
+Safe Clock Domain Crossing (CDC) is guaranteed through dedicated double-register synchronizers for status and swap handshake flags, eliminating metastability.
+
+\section{Analysis of Architectural Innovations and Trade-Offs}
+Several key design choices define the uniqueness of spGPU:
+\begin{itemize}
+    \item \textbf{Zero DSP Usage for Memory Addressing}: By decomposing coordinate addresses into shift-and-add operations ($(Y \ll 8) + (Y \ll 6) + X$), the design completely avoids consuming DSP48 multipliers for framebuffer access, leaving all 220 DSP slices available for advanced audio processing or computer vision accelerators on the SoC.
+    \item \textbf{On-Chip VRAM vs. External DRAM}: Storing the entire double-buffered framebuffer in on-chip Block RAM limits resolution to $320 \times 240$, but completely eliminates external DDR memory latency, memory controller overhead, and bus contention.
+    \item \textbf{Hardware Z-Buffering}: Integrating depth comparisons directly into the BRAM write port enables 2.5D visual layering at single-cycle latency, offloading complex depth sorting entirely from the CPU.
+\end{itemize}
+
+\section{Potential Future Enhancements}
+Future iterations of spGPU could build upon this foundation to introduce:
+\begin{enumerate}
+    \item \textbf{Subpixel Precision and Anti-Aliasing}: Extending the 9-bit coordinate registers to $12.4$ fixed-point format to implement subpixel line positioning and coverage-based anti-aliasing (MSAA).
+    \item \textbf{Smooth Gouraud Shading}: Interpolating per-vertex color components across triangle primitives in \texttt{edge\_fill\_top\_v2.vhd}.
+    \item \textbf{Hardware Texture Mapping Engine}: Adding a read-only texture cache BRAM to allow mapping compressed bitmap textures onto 2D polygons.
+    \item \textbf{Hardware Bit-Block Transfer (BitBLT)}: Implementing an instruction for high-speed rectangular memory copy and alpha blending.
+\end{enumerate}

@@ -1,0 +1,19 @@
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {1.1}{\ignorespaces spGPU Hardware Architectural Specifications}}{7}{table.1.1}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {3.1}{\ignorespaces spISA 64-Bit Instruction Set Summary}}{12}{table.3.1}%
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {4.1}{\ignorespaces Multicore Tile Mapping and Memory Footprint}}{15}{table.4.1}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {10.1}{\ignorespaces Hardware Interrupt Mapping to ARM Cortex-A9 GIC}}{33}{table.10.1}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {table}{\numberline {13.1}{\ignorespaces Estimated FPGA Resource Utilization on Xilinx Zynq XC7Z020}}{40}{table.13.1}%
+\addvspace {10\p@ }

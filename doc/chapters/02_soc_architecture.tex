@@ -1,0 +1,71 @@
+\chapter{System-on-Chip (SoC) Architecture and Interconnect}
+\label{chap:soc_architecture}
+
+\section{System Partitioning: Processing System vs. Programmable Logic}
+The spGPU architecture adopts a hardware/software co-design strategy that leverages the Xilinx Zynq-7000 All-Programmable System-on-Chip (SoC). The system is physically partitioned into two tightly coupled domains:
+\begin{enumerate}
+    \item \textbf{Processing System (PS)}: Hosts the dual-core ARM Cortex-A9 processor running bare-metal C firmware. The CPU executes high-level tasks that require complex branching, floating-point calculations, and dynamic state evaluation, including rigid-body physics, ball-to-ball and boundary elastic collision resolution, and frame timing orchestration.
+    \item \textbf{Programmable Logic (PL)}: Implements the spGPU coprocessor, containing the instruction dispatching unit, the parallel compute cores, the distributed tile memories, the performance analyzer, and the physical HDMI output engine.
+\end{enumerate}
+
+Figure~\ref{fig:soc_overview} illustrates the global block diagram of the SoC architecture, highlighting the interconnect interfaces, clock domains, and interrupt lines connecting the ARM processor with the FPGA logic.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_soc_overview.tex}
+}
+\caption{spGPU System-on-Chip (SoC) Top-Level Architecture and Interconnect.}
+\label{fig:soc_overview}
+\end{figure}
+
+\section{AXI DMA Communication Subsystem}
+To offload graphics commands without burdening the CPU with per-pixel or per-word Programmed I/O (PIO) transactions, communication from the PS to the PL is mediated by the \textbf{Xilinx AXI Direct Memory Access (AXI DMA)} core configured in \textit{Simple Direct Register Mode} for Memory-Mapped to Stream (MM2S) transfers:
+\begin{itemize}
+    \item \textbf{High-Speed Memory Read}: The DMA controller accesses DDR memory over the 32-bit AXI High-Performance (HP) slave port on the PS.
+    \item \textbf{Stream Conversion}: Instructions formatted into contiguous memory buffers are streamed over a 64-bit AXI4-Stream master interface (\texttt{M\_AXIS\_MM2S}).
+    \item \textbf{Low Software Overhead}: The CPU merely writes the source address (\texttt{MM2S\_SA}) and transfer byte length (\texttt{MM2S\_LENGTH}) to the DMA memory-mapped control registers, allowing the hardware engine to burst instructions autonomously.
+\end{itemize}
+
+\section{AXI4-Stream Custom Peripheral (\texttt{myaxistream\_1\_0})}
+The raw AXI4-Stream interface from the DMA engine is received on the FPGA by a custom conversion peripheral, \texttt{myaxistream\_1\_0} (detailed in \texttt{myaxistream\_v1\_0\_S\_AXIS.vhd}). This module serves as the primary gateway and protocol adapter between the Xilinx AXI bus and the internal scheduler of spGPU.
+
+\subsection{State Machine and Handshaking}
+The stream interface operates under a three-state Finite State Machine (FSM):
+\begin{enumerate}
+    \item \texttt{WAIT\_S}: The receiver remains in idle until the GPU scheduler asserts \texttt{ready\_enb} (indicating that the core FIFOs are ready to absorb a new command). Upon detecting a rising edge on \texttt{ready\_enb}, the FSM transitions to \texttt{TX1\_S}.
+    \item \texttt{TX1\_S}: The core asserts \texttt{S\_AXIS\_TREADY <= '1'}, signalling to the DMA master that it is prepared to accept data. When \texttt{S\_AXIS\_TVALID} is sampled high, the FSM advances to \texttt{TX2\_S}.
+    \item \texttt{TX2\_S}: The 64-bit data bus \texttt{S\_AXIS\_TDATA} is latched into \texttt{instr\_word}, \texttt{instr\_valid} is pulsed high for one cycle, \texttt{S\_AXIS\_TREADY} is deasserted, and the FSM returns to \texttt{WAIT\_S}.
+\end{enumerate}
+
+Listing~\ref{lst:axis_fsm} shows the core VHDL FSM implementation of this handshake protocol.
+
+\begin{lstlisting}[language=VHDL, caption={AXI4-Stream Handshake and State Machine in \texttt{myaxistream\_v1\_0\_S\_AXIS.vhd}.}, label={lst:axis_fsm}]
+process(all) 
+begin
+    if S_AXIS_ARESETN = '0' then
+        next_state_t <= WAIT_S;
+    else 
+        case state_t is
+            when WAIT_S => 
+                if fsm_start_edge = '1' then
+                    next_state_t <= TX1_S;
+                else 
+                    next_state_t <= WAIT_S;
+                end if;
+            when TX1_S =>
+                if S_AXIS_TVALID = '1' then
+                    next_state_t <= TX2_S;
+                else 
+                    next_state_t <= TX1_S;
+                end if;
+            when TX2_S =>
+                next_state_t <= WAIT_S;
+            when others => 
+                next_state_t <= WAIT_S;        
+        end case;
+    end if;        
+end process;
+\end{lstlisting}
+
+This handshake guarantees that incoming 64-bit instruction words from the DMA engine are ingested synchronously into the GPU clock domain without risk of FIFO overflow or lost words.

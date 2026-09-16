@@ -1,0 +1,141 @@
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.2cm and 1.5cm,
+    every text node part/.style={align=center},
+    box/.style={draw=black!80, thick, rounded corners=3pt, fill=white, inner sep=6pt, font=\small},
+    psbox/.style={box, fill=blue!8, draw=blue!60},
+    plbox/.style={box, fill=emerald!8, draw=emerald!60},
+    corebox/.style={box, fill=orange!10, draw=orange!70, minimum width=2.2cm, minimum height=0.9cm},
+    tilebox/.style={box, fill=purple!10, draw=purple!70, minimum width=2.2cm, minimum height=0.9cm},
+    bus/.style={draw=black!70, line width=1.5pt, ->},
+    sig/.style={draw=blue!70!black, thick, ->},
+    intsig/.style={draw=red!80!black, thick, dashed, ->},
+    subframe/.style={draw=gray!50, dashed, rounded corners=6pt, inner sep=10pt}
+]
+
+% ==================== PROCESSING SYSTEM (PS) ====================
+\begin{scope}[local bounding box=ps_box]
+    \node[psbox, font=\bfseries\normalsize, fill=blue!15, minimum width=13cm] (ps_title) {Processing System (PS) -- Dual-Core ARM Cortex-A9 (Zynq-7000)};
+    
+    \node[psbox, below=0.6cm of ps_title.south west, anchor=north west, minimum width=3.2cm, minimum height=1.6cm] (arm_app) {
+        \textbf{Bare-Metal Application}\\
+        \footnotesize 60 FPS Physics Engine\\
+        \footnotesize Collision \& Game Loop
+    };
+    
+    \node[psbox, right=0.8cm of arm_app, minimum width=3.0cm, minimum height=1.6cm] (arm_lib) {
+        \textbf{spGPU Driver}\\
+        \footnotesize\texttt{sp\_lib.c} / \texttt{sp\_lib.h}\\
+        \footnotesize 64-bit Packet Builder
+    };
+
+    \node[psbox, right=0.8cm of arm_lib, minimum width=2.4cm, minimum height=1.6cm] (axi_dma) {
+        \textbf{AXI DMA}\\
+        \footnotesize Simple Mode MM2S\\
+        \footnotesize Direct Memory Stream
+    };
+
+    \node[psbox, fill=red!10, draw=red!60, right=0.8cm of axi_dma, minimum width=2.2cm, minimum height=1.6cm] (gic) {
+        \textbf{ARM GIC}\\
+        \footnotesize Interrupt Controller\\
+        \footnotesize IRQ 61 \& IRQ 62
+    };
+
+    \draw[bus] (arm_app) -- (arm_lib);
+    \draw[bus] (arm_lib) -- (axi_dma);
+\end{scope}
+\node[subframe, fit=(ps_box), label={[anchor=north west, font=\bfseries\color{blue!80!black}]above left:PS (ARM Processing System Domain)}] {};
+
+% ==================== INTERCONNECT ====================
+\node[box, fill=gray!20, draw=gray!70, below=1.2cm of axi_dma, minimum width=3.8cm, font=\small\bfseries] (axi_stream) {
+    AXI4-Stream (64-bit)\\
+    \footnotesize\texttt{s\_axis\_tdata[63:0]}, \texttt{tvalid}, \texttt{tready}
+};
+\draw[bus] (axi_dma) -- (axi_stream);
+
+% ==================== PROGRAMMABLE LOGIC (PL) ====================
+\begin{scope}[local bounding box=pl_box]
+    \node[plbox, fill=teal!15, font=\bfseries\normalsize, below=1.2cm of axi_stream, minimum width=15.5cm] (pl_title) {
+        Programmable Logic (PL) -- Custom spGPU Multicore Accelerator (100 MHz Core Domain)
+    };
+
+    \node[plbox, below=0.7cm of pl_title.west, anchor=north west, minimum width=3.4cm, minimum height=1.2cm] (axi_wrap) {
+        \textbf{AXI-Stream Wrapper}\\
+        \footnotesize\texttt{myaxistream\_v1\_0}\\
+        \footnotesize Protocol Conversion FSM
+    };
+    \draw[bus] (axi_stream.south) -| (axi_wrap.north);
+
+    \node[plbox, fill=amber!15, draw=amber!70, right=0.8cm of axi_wrap, minimum width=4.0cm, minimum height=1.2cm] (sched) {
+        \textbf{Dynamic Scheduler}\\
+        \footnotesize\texttt{spScheduler} \& 10$\times$ FIFOs\\
+        \footnotesize Bounding Box $[Y_{\min}, Y_{\max}]$
+    };
+    \draw[bus] (axi_wrap) -- node[above, font=\scriptsize] {\texttt{instr\_word[63:0]}} (sched);
+
+    \node[plbox, fill=red!10, draw=red!60, right=1.2cm of sched, minimum width=3.2cm, minimum height=1.2cm] (analyzer) {
+        \textbf{spANALYZER}\\
+        \footnotesize 1-sec (100 MHz) Counter\\
+        \footnotesize Exact FPS Measurement
+    };
+
+    % Core Array
+    \node[corebox, below=1.2cm of sched.south west, anchor=north] (c0) {\textbf{spCORE 0}\\ \scriptsize Tile 0 ($Y: 0..23$)};
+    \node[corebox, right=0.3cm of c0] (c1) {\textbf{spCORE 1}\\ \scriptsize Tile 1 ($Y: 24..47$)};
+    \node[font=\bfseries, right=0.3cm of c1] (cdots) {\dots};
+    \node[corebox, right=0.3cm of cdots] (c9) {\textbf{spCORE 9}\\ \scriptsize Tile 9 ($Y: 216..239$)};
+
+    % Tile BRAM Array
+    \node[tilebox, below=1.0cm of c0] (t0) {\textbf{Tile VRAM 0}\\ \scriptsize $320\times 24$ D-Buffer\\ \scriptsize + 4-bit Z-RAM};
+    \node[tilebox, below=1.0cm of c1] (t1) {\textbf{Tile VRAM 1}\\ \scriptsize $320\times 24$ D-Buffer\\ \scriptsize + 4-bit Z-RAM};
+    \node[font=\bfseries, below=1.3cm of cdots] (tdots) {\dots};
+    \node[tilebox, below=1.0cm of c9] (t9) {\textbf{Tile VRAM 9}\\ \scriptsize $320\times 24$ D-Buffer\\ \scriptsize + 4-bit Z-RAM};
+
+    \draw[bus] (sched.south) -- ++(0,-0.3) -| (c0.north);
+    \draw[bus] (sched.south) -- ++(0,-0.3) -| (c1.north);
+    \draw[bus] (sched.south) -- ++(0,-0.3) -| (c9.north);
+
+    \draw[bus] (c0) -- node[right, font=\tiny] {$(X,Y,C,Z)$} (t0);
+    \draw[bus] (c1) -- node[right, font=\tiny] {$(X,Y,C,Z)$} (t1);
+    \draw[bus] (c9) -- node[right, font=\tiny] {$(X,Y,C,Z)$} (t9);
+
+    % Scanline Multiplexer
+    \node[box, fill=cyan!15, draw=cyan!70, below=0.8cm of tdots, minimum width=11cm, minimum height=0.9cm] (mux) {
+        \textbf{Scanline Video Multiplexer}\\
+        \footnotesize Selects Tile $0 \dots 9$ based on current vertical scanline $Y_{\text{scan}} \in [0, 239]$
+    };
+    \draw[bus] (t0.south) -- (t0.south |- mux.north);
+    \draw[bus] (t1.south) -- (t1.south |- mux.north);
+    \draw[bus] (t9.south) -- (t9.south |- mux.north);
+
+    % Display Controller
+    \node[box, fill=blue!10, draw=blue!60, below=0.8cm of mux.west, anchor=north west, minimum width=4.5cm] (vga) {
+        \textbf{Display Controller (\texttt{vga\_struct})}\\
+        \footnotesize VGA Timing: $640\times 480$ @ 60 Hz\\
+        \footnotesize 2$\times$ Nearest-Neighbor Upscaler
+    };
+    \draw[bus] (mux.south -| vga.north) -- (vga.north);
+
+    % TMDS & Serializer
+    \node[box, fill=indigo!10, draw=indigo!60, right=0.8cm of vga, minimum width=3.8cm] (tmds) {
+        \textbf{HDMI TMDS TX}\\
+        \footnotesize TMDS 8b/10b Encoders\\
+        \footnotesize\texttt{OSERDESE2} 5:1 DDR (125 MHz)
+    };
+    \draw[bus] (vga) -- node[above, font=\scriptsize] {RGB888} (tmds);
+
+    \node[box, fill=slate!20, draw=black, right=0.8cm of tmds, minimum width=2.4cm] (hdmi_port) {
+        \textbf{HDMI Port}\\
+        \footnotesize Direct TMDS\\
+        \footnotesize Differential Pairs
+    };
+    \draw[bus] (tmds) -- node[above, font=\tiny] {\texttt{CLK}, \texttt{D[2:0]}} (hdmi_port);
+
+\end{scope}
+\node[subframe, fit=(pl_box), label={[anchor=north west, font=\bfseries\color{teal!80!black}]above left:PL (FPGA Programmable Logic Domain)}] {};
+
+% ==================== INTERRUPT CONNECTIONS ====================
+\draw[intsig] (analyzer.north) to[out=90, in=0] node[pos=0.6, right, font=\scriptsize] {IRQ 61: 1 Hz Tick (FPS)} (gic.east);
+\draw[intsig] (vga.west) to[out=180, in=-90] ++(-0.6, 3.5) to[out=90, in=180] node[pos=0.85, above, font=\scriptsize] {IRQ 62: 60 Hz VSYNC} (gic.south);
+
+\end{tikzpicture}

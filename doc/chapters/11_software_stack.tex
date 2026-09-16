@@ -1,0 +1,107 @@
+\chapter{Bare-Metal Software Stack and Host Driver}
+\label{chap:software_stack}
+
+\section{Software Architecture Overview}
+The software stack operating on the ARM Cortex-A9 is structured in two primary layers:
+\begin{enumerate}
+    \item \textbf{spGPU Driver Library (\texttt{sp\_lib.c} and \texttt{sp\_lib.h})}: Provides low-level hardware abstraction, DMA register management, coordinate validation, and zero-copy 64-bit instruction bit-packing.
+    \item \textbf{Physics Application Demo (\texttt{main.c})}: Implements an interactive multi-body physics simulation featuring 10 bouncing spheres with continuous collision response, boundary clamping, and real-time hardware telemetry display.
+\end{enumerate}
+
+\section{Low-Level AXI DMA Driver}
+The driver interfaces with the Xilinx AXI DMA engine through direct register read/write macros (\texttt{Xil\_In32}, \texttt{Xil\_Out32}):
+\begin{itemize}
+    \item \textbf{Initialization (\texttt{InitDMA})}: Enables the MM2S DMA channel by setting the run/stop bit (\texttt{RS = 1}) in the control register:
+    \begin{lstlisting}[language=C, caption={DMA Controller Initialization in \texttt{sp\_lib.c}.}, label={lst:init_dma}]
+    void InitDMA(void) {
+        unsigned int tmpVal = Xil_In32(XPAR_AXIDMA_0_BASEADDR + 0x0);
+        tmpVal = tmpVal | 0x1001; // Enable DMA run and interrupts
+        Xil_Out32(XPAR_AXIDMA_0_BASEADDR + 0x0, tmpVal);
+    }
+    \end{lstlisting}
+    \item \textbf{Asynchronous Transfer Initiation (\texttt{StartDMATransfer})}: Configures the source address register (\texttt{0x18}) with the pointer to the instruction structure and writes the byte length into the transfer length register (\texttt{0x28}). The function polls the status register (\texttt{0x04}) until bit 12 (\texttt{IOC\_Irq}) confirms transfer completion.
+\end{itemize}
+
+\section{Zero-Copy Bit-Packed Instruction Mapping}
+To construct 64-bit spISA instructions efficiently without manual bitmasking and shifting on every call, the driver utilizes C bitfield unions declared with the GCC attribute \texttt{\_\_attribute\_\_((packed))}.
+
+As shown in Listing~\ref{lst:packed_structs}, the compiler maps the C structure fields directly into the exact 64-bit memory layout expected by the FPGA hardware.
+
+\begin{lstlisting}[language=C, caption={Packed C Unions for spISA Encoding in \texttt{sp\_lib.h}.}, label={lst:packed_structs}]
+typedef union {
+    struct __attribute__((packed)) {
+        uint64_t opcode  : 4;  // Bits 0-3: Opcode (0b0010 = DrawLine)
+        uint64_t z       : 4;  // Bits 4-7: Depth Z
+        uint64_t x1      : 9;  // Bits 8-16: X1 coordinate
+        uint64_t y1      : 9;  // Bits 17-25: Y1 coordinate
+        uint64_t x2      : 9;  // Bits 26-34: X2 coordinate
+        uint64_t y2      : 9;  // Bits 35-43: Y2 coordinate
+        uint64_t padding : 20; // Bits 44-63: Unused padding
+    };
+    uint64_t instr; // 64-bit assembled instruction word
+} DrawLine_t;
+
+typedef union {
+    struct __attribute__((packed)) {
+        uint64_t opcode  : 4;  // Bits 0-3: Opcode (0b0110 = DrawCircleF)
+        uint64_t z       : 4;  // Bits 4-7: Depth Z
+        uint64_t xc      : 9;  // Bits 8-16: Xc center coordinate
+        uint64_t yc      : 9;  // Bits 17-25: Yc center coordinate
+        uint64_t r       : 9;  // Bits 26-34: Radius R
+        uint64_t padding : 29; // Bits 35-63: Unused padding
+    };
+    uint64_t instr;
+} DrawCircle_t;
+\end{lstlisting}
+
+\section{High-Level Drawing API}
+The driver encapsulates instruction emission within high-level function calls. Each drawing function performs boundary checking against the display resolution ($320 \times 240$) and issues a paired \texttt{SetColor} instruction before transmitting the primitive:
+\begin{lstlisting}[language=C, caption={Filled Circle Drawing Implementation in \texttt{sp\_lib.c}.}, label={lst:draw_circle_f}]
+int DrawCircleF(uint64_t xc, uint64_t yc, uint64_t r, unsigned int color, unsigned char z) {
+    DrawCircle_t instr = {0};
+    if (xc >= VIDEO_X || yc >= VIDEO_Y) {
+        printf("Coordinates exceed screen dimensions\n");
+        return 1;
+    }
+    instr.opcode = 6; // OP = 0b0110
+    instr.xc = xc;
+    instr.yc = yc;
+    instr.r  = r;
+    instr.z  = z;
+    
+    if (SetColor(color)) return 1;
+    StartDMATransfer(&instr, sizeof(DrawCircle_t));
+    return 0;
+}
+\end{lstlisting}
+
+\section{Real-Time Physics Demonstration Application (\texttt{main.c})}
+To benchmark the system under heavy graphical workloads, the demonstration application simulates 10 elastic circular bodies interacting under Newtonian mechanics.
+
+\subsection{Physical Model and Collision Resolution}
+Each sphere $i$ possesses a state vector $\mathbf{S}_i = [x, y, v_x, v_y, m, r, \text{col}]^T$. 
+
+When two spheres $a$ and $b$ collide ($\|\mathbf{p}_b - \mathbf{p}_a\| \le r_a + r_b$), the overlap is corrected along the collision normal $\mathbf{n} = (\mathbf{p}_b - \mathbf{p}_a)/\|\mathbf{p}_b - \mathbf{p}_a\|$, and the elastic impulse scalar $j$ is applied:
+\begin{equation}
+j = \frac{-(1 + e)(\mathbf{v}_{\text{rel}} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}, \quad e = 1.0 \text{ (Perfect Elasticity)}
+\end{equation}
+\begin{equation}
+\mathbf{v}_a \gets \mathbf{v}_a - \frac{j}{m_a}\mathbf{n}, \quad \mathbf{v}_b \gets \mathbf{v}_b + \frac{j}{m_b}\mathbf{n}
+\end{equation}
+
+Boundary collisions against the four walls ($X \in [0, 319], Y \in [0, 239]$) are resolved with positional clamping to guarantee that circles never drift off-screen:
+\begin{equation}
+\text{If } x - r < 0 \implies x \gets r, \quad v_x \gets -v_x
+\end{equation}
+\begin{equation}
+\text{If } x + r \ge 320 \implies x \gets 319 - r, \quad v_x \gets -v_x
+\end{equation}
+
+\subsection{Execution Loop and Console Output}
+The application loop synchronizes to the 60 Hz VSYNC interrupt. Once per second, when IRQ 61 sets \texttt{g\_fps\_ready}, the system prints the measured performance metrics over the UART serial interface (115200 baud):
+\begin{verbatim}
+FPS (HW): 60 | Frames (VSYNC): 60
+FPS (HW): 60 | Frames (VSYNC): 60
+FPS (HW): 60 | Frames (VSYNC): 60
+\end{verbatim}
+This confirms that the GPU comfortably rasterizes the ten overlapping filled circles, performs all depth tests, and completes the swap well within the $16.67\,\text{ms}$ frame deadline.

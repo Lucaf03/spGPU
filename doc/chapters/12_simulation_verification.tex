@@ -1,0 +1,49 @@
+\chapter{Simulation, Verification, and Tooling}
+\label{chap:simulation_verification}
+
+\section{Verification Strategy}
+Designing a complex multicore graphics processor requires multi-level verification to ensure mathematical fidelity, correct pipeline sequencing, and absence of visual artifacts. The verification framework for spGPU spans three complementary domains:
+\begin{enumerate}
+    \item \textbf{C/C++ Algorithmic Golden Models}: Functional verification of integer rasterization math.
+    \item \textbf{VHDL RTL Simulation}: Cycle-accurate logic verification and waveform analysis in ModelSim / QuestaSim.
+    \item \textbf{Visual Testbench Co-Simulation}: Desktop software visualization using the \textit{Raylib} engine to render simulation output files before physical FPGA synthesis.
+\end{enumerate}
+
+\section{Software Simulation Models (\texttt{software\_sim/})}
+Before implementing hardware descriptions in VHDL, software prototypes were built in C and C++ to validate the mathematical formulations:
+\begin{itemize}
+    \item \textbf{\texttt{bresenhamLine.c}}: Validated the integer decision variable accumulator and step directions for all eight slope octants.
+    \item \textbf{\texttt{bresenhamCircle.c}} and \textbf{\texttt{fill\_circle.c}}: Verified octant reflection and scanline span continuity to ensure no missing pixels along horizontal seams.
+    \item \textbf{\texttt{edge\_fill.c}} and \textbf{\texttt{bf\_triangle.cpp}}: Validated the 2D cross-product edge equations, evaluating orientation invariance for clockwise and counter-clockwise vertex definitions.
+    \item \textbf{\texttt{nn\_upscaling.cpp}}: An OpenCV-based model testing the $2\times$ nearest-neighbor scaling algorithm on sample photographic and synthetic bitmap inputs, confirming that coordinate downshifting preserves sharpness without visual distortion.
+\end{itemize}
+
+\section{Interactive Visual Simulator (\texttt{simulator.c})}
+A major challenge in RTL graphics verification is that inspecting thousands of raw pixel coordinates in logic analyzer waveforms (such as \texttt{vsim.wlf}) is tedious and cannot easily reveal subtle geometric flaws (e.g., rasterization gaps, edge aliasing, or clipping leaks).
+
+To overcome this, the authors created \textbf{\texttt{simulator.c}}, a desktop visualization tool built using the open-source \textbf{Raylib} graphics library:
+\begin{enumerate}
+    \item During VHDL simulation of the top-level testbench (\texttt{tb\_spGPU.vhd}), a file logger process captures every asserted pixel:
+    \begin{equation}
+    (X, Y, \text{Color}) \implies \text{Logged to } \texttt{output\_pixels.txt}
+    \end{equation}
+    \item \texttt{simulator.c} parses the resulting text file, allocates an array of \texttt{PixelRecord} structures, and reconstructs the full visual frame inside an interactive $800 \times 600$ window on the developer's PC.
+    \item This visual co-simulation enabled immediate visual inspection of triangles, lines, and filled circles synthesized by the VHDL accelerators, drastically reducing debug cycles.
+\end{enumerate}
+
+\section{RTL Testbench Suite and ModelSim Automation}
+The repository includes a comprehensive hierarchy of VHDL testbenches in the \texttt{tb/} directory:
+\begin{itemize}
+    \item \textbf{Unit Testbenches}:
+    \begin{itemize}
+        \item \texttt{tb\_line\_acc.vhd}: Stimulates the line accelerator with various slope combinations (steep, shallow, negative, zero length).
+        \item \texttt{tb\_circle\_acc.vhd} and \texttt{tb\_filled\_circle\_acc.vhd}: Verifies circle rasterization for various radii and off-center coordinate offsets.
+        \item \texttt{tb\_edge\_fill.vhd} and \texttt{tb\_edge\_fill\_top.vhd}: Stimulates the triangle fill unit with acute, obtuse, and degenerate triangles.
+    \end{itemize}
+    \item \textbf{Integration Testbenches}:
+    \begin{itemize}
+        \item \texttt{tb\_spCORE.vhd}: Verifies instruction fetch, pipeline sequencing, and tile clipping on a single core.
+        \item \texttt{tb\_spGPU.vhd}: Full-chip simulation with instruction streaming from \texttt{instr\_input.txt} and pixel dumping to \texttt{output\_pixels.txt}.
+    \end{itemize}
+    \item \textbf{Automated Compilation Scripts}: The script \texttt{compile/compile.sh} automates library mapping (\texttt{vlib}, \texttt{vmap}), compiles all RTL files in strict dependency order with VHDL-2008 compatibility (\texttt{vcom -2008}), and launches QuestaSim/ModelSim with waveform profiling configurations (\texttt{waves.tcl}).
+\end{itemize}

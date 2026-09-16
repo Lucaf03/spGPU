@@ -1,0 +1,85 @@
+\chapter{Display Controller and Physical HDMI Transmitter}
+\label{chap:hdmi_display}
+
+\section{Video Subsystem Overview}
+To eliminate the need for external digital-to-analog converters (such as VGA DAC chips) or third-party HDMI bridge controllers, spGPU incorporates an entirely native, hardware-synthesized \textbf{HDMI Transmitter and Display Pipeline}. 
+
+The subsystem interfaces directly with the physical differential pins of the HDMI Type-A connector on the PYNQ-Z1 board. Figure~\ref{fig:hdmi_pipeline} traces the signal path from the VGA timing generator to the differential output buffers.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_hdmi_pipeline.tex}
+}
+\caption{Complete HDMI Display and Physical Transmission Pipeline.}
+\label{fig:hdmi_pipeline}
+\end{figure}
+
+\section{VGA Timing Generation (\texttt{counter\_pixel.vhd})}
+The master video timing is produced by \texttt{counter\_pixel.vhd} operating at a pixel clock frequency of $25.0\,\text{MHz}$ (standard $640 \times 480$ @ $60\,\text{Hz}$ VGA progressive timing):
+\begin{itemize}
+    \item \textbf{Horizontal Parameters}: $640$ active display pixels, Front Porch $= 16$, HSYNC pulse $= 96$, Back Porch $= 48$, giving a total line period of $800$ pixel clock cycles ($32.0\,\mu\text{s}$, $31.25\,\text{kHz}$ line rate).
+    \item \textbf{Vertical Parameters}: $480$ active display scanlines, Front Porch $= 10$, VSYNC pulse $= 2$, Back Porch $= 33$, yielding a total frame period of $525$ lines ($16.8\,\text{ms}$, $\approx 59.52\,\text{Hz}$ refresh rate).
+\end{itemize}
+
+\section{Hardware $2\times$ Nearest-Neighbor Upscaling}
+The internal rendering resolution of spGPU is $320 \times 240$, whereas the HDMI transmitter requires a $640 \times 480$ raster. 
+
+Rather than consuming memory bandwidth or DSP resources with bilinear filtering buffers, spGPU executes a zero-latency, zero-cost **$2\times$ Nearest-Neighbor Upscaling** directly in hardware by truncating the least significant bit (LSB) of the 10-bit VGA counter coordinates:
+\begin{equation}
+H_{\text{gpu}}[8:0] = H_{\text{vga}}[9:1] \implies H_{\text{gpu}} = \lfloor H_{\text{vga}} / 2 \rfloor
+\end{equation}
+\begin{equation}
+V_{\text{gpu}}[8:0] = V_{\text{vga}}[9:1] \implies V_{\text{gpu}} = \lfloor V_{\text{vga}} / 2 \rfloor
+\end{equation}
+Each internal pixel rendered into VRAM is thus held for two consecutive pixel clocks horizontally and two consecutive scanlines vertically, creating a sharp, pixel-perfect $2 \times 2$ pixel block on the high-definition monitor.
+
+\section{BRAM Pipeline Latency Alignment}
+Synchronous Xilinx Block RAM primitives introduce an intrinsic 1-clock-cycle read latency between address presentation and valid data output. If the video synchronization pulses (\texttt{h\_sync}, \texttt{v\_sync}) and the active video flag (\texttt{video\_active}) were transmitted concurrently with address generation, the displayed image would be horizontally shifted by one pixel and the rightmost column would be truncated.
+
+The module \texttt{vga\_struct.vhd} resolves this by routing the timing flags through dedicated 1-cycle pipeline registers:
+\begin{lstlisting}[language=VHDL, caption={Pipeline Latency Alignment in \texttt{vga\_struct.vhd}.}, label={lst:vga_pipeline}]
+align_proc : process(pixelclock, rst)
+begin
+    if rst = '1' then
+        video_active_pipe <= '0';
+        h_sync_pipe       <= '1';
+        v_sync_pipe       <= '1';
+    elsif rising_edge(pixelclock) then
+        video_active_pipe <= video_active_s;
+        h_sync_pipe       <= h_sync_s;
+        v_sync_pipe       <= v_sync_s;
+    end if;
+end process;
+\end{lstlisting}
+This guarantees that pixel color data leaving the BRAM arrives at the TMDS encoder in exact temporal alignment with its corresponding active video framing.
+
+\section{Color Expansion (RGB555 to RGB888)}
+The 15-bit color stored in VRAM allocates 5 bits per primary color. To drive standard 24-bit TrueColor HDMI sinks without darkening the dynamic range, the 5-bit color components are expanded to 8 bits by replicating the 3 most significant bits into the 3 least significant bit positions:
+\begin{align}
+R_{8}[7:0] &= R_{5}[4:0] \mathbin{\Vert} R_{5}[4:2] \\
+G_{8}[7:0] &= G_{5}[4:0] \mathbin{\Vert} G_{5}[4:2] \\
+B_{8}[7:0] &= B_{5}[4:0] \mathbin{\Vert} B_{5}[4:2]
+\end{align}
+This ensures that maximum 5-bit value (\texttt{"11111"}) maps accurately to maximum 8-bit value (\texttt{"11111111"} = 255), maintaining full dynamic contrast and color saturation.
+
+\section{TMDS 8b/10b Encoders (\texttt{tmds\_encoder.vhd})}
+Transition-Minimized Differential Signaling (TMDS) encodes 8-bit color data into 10-bit symbols to minimize high-frequency electromagnetic interference (EMI) and maintain DC balance over the physical cable:
+\begin{enumerate}
+    \item \textbf{Transition Minimization}: Evaluates the number of '1' bits in the input byte. Depending on the density, it generates an 8-bit sequence using either cumulative XOR or cumulative XNOR operations, asserting the 9th bit (\texttt{q\_m[8]}) to denote the chosen scheme.
+    \item \textbf{DC Balance \& Disparity Tracking}: An internal signed 4-bit accumulator (\texttt{disparity}) monitors the running discrepancy between transmitted '1's and '0's. If the disparity exceeds zero, the 10th bit is inverted to restore the DC baseline of the transmission line.
+    \item \textbf{Blanking Control Word Mapping}: During the horizontal and vertical blanking intervals (\texttt{video\_active = '0'}), the encoder maps the 2-bit control inputs (\texttt{h\_sync}, \texttt{v\_sync}) to one of four unique 10-bit synchronization sequences (\texttt{"1101010100"}, \texttt{"0010101011"}, etc.) exhibiting high transition rates for phase-locked loop (PLL) clock recovery at the sink.
+\end{enumerate}
+
+\section{Physical Serialization and Differential I/O (\texttt{serializer.vhd})}
+To transmit 10-bit parallel TMDS symbols over a single-conductor pair per channel at $60\,\text{Hz}$, the bit rate per lane is:
+\begin{equation}
+\text{Bit Rate} = 25.0\,\text{MHz} \times 10 = 250.0\,\text{Mbps/lane}
+\end{equation}
+
+In Xilinx 7-series FPGAs, this is realized by cascading two \textbf{\texttt{OSERDESE2}} hardware primitives in Master/Slave configuration:
+\begin{itemize}
+    \item \textbf{Clocking}: Operating in Double Data Rate (DDR) mode with a 5:1 serialization ratio, the blocks are clocked by the fast serial clock \texttt{serialclock = 125.0 MHz} ($5 \times 25.0\,\text{MHz}$) and divided parallel clock \texttt{pixelclock = 25.0 MHz}.
+    \item \textbf{Cascading}: The Master OSERDESE2 serializes the lower 8 bits, while the Slave OSERDESE2 supplies the upper 2 bits via internal shift lines (\texttt{SHIFTIN1}, \texttt{SHIFTIN2}).
+    \item \textbf{Differential Drivers}: The serialized output bitstreams for the clock channel and the three data channels (Red, Green, Blue) drive four Xilinx \textbf{\texttt{OBUFDS}} differential output buffer primitives configured with the \texttt{TMDS\_33} I/O standard, providing the correct current and impedance matching for direct connection to any standard HDMI monitor.
+\end{itemize}

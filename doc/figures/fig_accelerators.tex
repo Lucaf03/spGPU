@@ -1,0 +1,76 @@
+\begin{tikzpicture}[
+    >=Stealth,
+    scale=0.9, every node/.style={transform shape},
+    every text node part/.style={align=center},
+    box/.style={draw=black!80, thick, rounded corners=3pt, fill=white, inner sep=5pt, font=\small},
+    accbox/.style={box, fill=amber!10, draw=amber!80},
+    mathnode/.style={box, fill=cyan!10, draw=cyan!80, font=\scriptsize},
+    bus/.style={draw=black!70, line width=1.2pt, ->}
+]
+
+% ==================== SUBFIGURE A: BRESENHAM LINE ====================
+\node[accbox, font=\bfseries, minimum width=6.5cm, fill=blue!10, draw=blue!70] (title_line) at (3.25, 6.5) {
+    (a) Line Accelerator (\texttt{line\_acc.vhd})
+};
+
+\node[mathnode] (line_init) at (1.5, 5.2) {
+    \textbf{Initialization}\\
+    $\Delta X = |X_2 - X_1|$\\
+    $\Delta Y = |Y_2 - Y_1|$\\
+    $\text{err} = \Delta X - \Delta Y$
+};
+
+\node[mathnode] (line_iter) at (5.0, 5.2) {
+    \textbf{Single-Cycle Step}\\
+    $e_2 = 2 \cdot \text{err} = (\text{err} \ll 1)$\\
+    If $e_2 > -\Delta Y$: $\text{err} \gets \text{err} - \Delta Y$, $X \gets X + S_x$\\
+    If $e_2 < \Delta X$: $\text{err} \gets \text{err} + \Delta X$, $Y \gets Y + S_y$
+};
+
+\node[box, fill=emerald!15, draw=emerald!80] (line_out) at (3.25, 3.8) {
+    \textbf{Pixel Output}: $(X, Y, \text{Color}, \text{Valid})$ (1 Pixel / Clock Cycle)
+};
+
+\draw[bus] (line_init) -- (line_iter);
+\draw[bus] (line_iter) -- (line_out);
+
+% ==================== SUBFIGURE B: TRIANGLE EDGE CROSS PRODUCTS ====================
+\node[accbox, font=\bfseries, minimum width=7.0cm, fill=emerald!10, draw=emerald!70] (title_tri) at (11.5, 6.5) {
+    (b) Triangle Rasterizer (\texttt{edge\_fill\_top\_v2.vhd})
+};
+
+\node[mathnode] (tri_bbox) at (11.5, 5.4) {
+    \textbf{Bounding Box Evaluation (\texttt{minmax.vhd})}\\
+    $X_{\min} = \min(X_1, X_2, X_3), \quad X_{\max} = \max(X_1, X_2, X_3)$\\
+    $Y_{\min} = \min(Y_1, Y_2, Y_3), \quad Y_{\max} = \max(Y_1, Y_2, Y_3)$
+};
+
+\node[mathnode, fill=orange!10, draw=orange!80] (tri_cross) at (11.5, 3.8) {
+    \textbf{Parallel 2D Cross-Product Units (\texttt{edge\_fill\_v2.vhd})}\\
+    $W_0 = (P_x - X_2)(Y_3 - Y_2) - (P_y - Y_2)(X_3 - X_2)$\\
+    $W_1 = (P_x - X_3)(Y_1 - Y_3) - (P_y - Y_3)(X_1 - X_3)$\\
+    $W_2 = (P_x - X_1)(Y_2 - Y_1) - (P_y - Y_1)(X_2 - X_1)$
+};
+
+\node[box, fill=teal!15, draw=teal!80] (tri_inside) at (11.5, 2.2) {
+    \textbf{Half-Space Sign Evaluation}\\
+    If $\text{sign}(W_0) = \text{sign}(W_1) = \text{sign}(W_2) = \text{sign}(\text{Area})$: Pixel Inside!
+};
+
+\draw[bus] (tri_bbox) -- (tri_cross);
+\draw[bus] (tri_cross) -- (tri_inside);
+
+% ==================== SUBFIGURE C: CIRCLE SCANLINES ====================
+\node[accbox, font=\bfseries, minimum width=6.5cm, fill=purple!10, draw=purple!70] (title_circ) at (3.25, 2.6) {
+    (c) Filled Circle Accelerator (\texttt{filled\_circle\_acc.vhd})
+};
+
+\node[mathnode] (circ_desc) at (3.25, 1.2) {
+    \textbf{Horizontal Scanline Span Filling}\\
+    Maintains Midpoint Decision Variable $d \gets d + 4(X-Y) + 14$\\
+    Iterates horizontal spans between symmetric octants:\\
+    Row $Y_c \pm Y$: Span from $X_c - X$ to $X_c + X$\\
+    Row $Y_c \pm X$: Span from $X_c - Y$ to $X_c + Y$
+};
+
+\end{tikzpicture}

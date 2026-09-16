@@ -1,0 +1,84 @@
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=0.9cm and 1.0cm,
+    every text node part/.style={align=center},
+    box/.style={draw=black!80, thick, rounded corners=3pt, fill=white, inner sep=5pt, font=\small},
+    pipenode/.style={box, fill=blue!10, draw=blue!70, minimum width=2.4cm},
+    bus/.style={draw=black!70, line width=1.3pt, ->},
+    sig/.style={draw=blue!70!black, thick, ->},
+    ctl/.style={draw=red!80!black, dashed, thick, ->}
+]
+
+% ==================== PIXEL COUNTER & TIMING ====================
+\node[pipenode, minimum width=3.2cm] (counter) {
+    \textbf{VGA Timing Generator}\\
+    \scriptsize\texttt{counter\_pixel.vhd}\\
+    \scriptsize Pixel Clock: 25.0 MHz\\
+    \scriptsize Horiz: 640 visible (800 total)\\
+    \scriptsize Vert: 480 visible (525 total)
+};
+
+% ==================== 2X UPSCALING ====================
+\node[pipenode, fill=cyan!15, draw=cyan!80, right=1.0cm of counter] (upscale) {
+    \textbf{2$\times$ Upscaler Logic}\\
+    \scriptsize $H_{\text{coord}} = H_{\text{vga}}[9:1]$\\
+    \scriptsize $V_{\text{coord}} = V_{\text{vga}}[9:1]$\\
+    \scriptsize Zero Latency / Shift
+};
+\draw[bus] (counter) -- node[above, font=\tiny] {$H[9:0], V[9:0]$} (upscale);
+
+% ==================== VRAM ACCESS ====================
+\node[pipenode, fill=purple!15, draw=purple!80, right=1.0cm of upscale] (vram_read) {
+    \textbf{Tile VRAM Scan}\\
+    \scriptsize Front Buffer Read\\
+    \scriptsize Port B Latency: 1 Cycle\\
+    \scriptsize Outputs: 15-bit RGB555
+};
+\draw[bus] (upscale) -- node[above, font=\tiny] {$X_{\text{gpu}}, Y_{\text{gpu}}$} (vram_read);
+
+% ==================== PIPELINE ALIGNMENT ====================
+\node[pipenode, fill=amber!15, draw=amber!80, below=1.0cm of counter, xshift=2.0cm, minimum width=4.5cm] (align) {
+    \textbf{Pipeline Alignment Stage (1 Cycle Delay)}\\
+    \scriptsize\texttt{video\_active\_pipe <= video\_active\_s}\\
+    \scriptsize\texttt{h\_sync\_pipe <= h\_sync\_s}, \texttt{v\_sync\_pipe <= v\_sync\_s}\\
+    \scriptsize Prevents Display Columns Distortion
+};
+\draw[ctl] (counter.south) |- (align.west);
+
+% ==================== COLOR EXPANSION ====================
+\node[pipenode, fill=teal!15, draw=teal!80, below=1.0cm of vram_read, xshift=-0.5cm, minimum width=3.6cm] (color_exp) {
+    \textbf{Color Expander (15b $\to$ 24b)}\\
+    \scriptsize $R[7:0] = R_5 \& R_5[4:2]$\\
+    \scriptsize $G[7:0] = G_5 \& G_5[4:2]$\\
+    \scriptsize $B[7:0] = B_5 \& B_5[4:2]$
+};
+\draw[bus] (vram_read.south) -- (color_exp.north);
+
+% ==================== TMDS ENCODER ====================
+\node[pipenode, fill=indigo!15, draw=indigo!80, below=1.2cm of align, xshift=2.0cm, minimum width=4.8cm] (tmds_enc) {
+    \textbf{TMDS 8b/10b Encoders (\texttt{tmds\_encoder.vhd})}\\
+    \scriptsize 3$\times$ Parallel Channels (Red, Green, Blue)\\
+    \scriptsize XOR/XNOR Minimization + DC Disparity Tracking\\
+    \scriptsize Maps Blanking Controls to TMDS Control Words
+};
+\draw[bus] (color_exp.south) |- (tmds_enc.east);
+\draw[ctl] (align.south) -- (align.south |- tmds_enc.north);
+
+% ==================== SERIALIZERS ====================
+\node[pipenode, fill=orange!15, draw=orange!80, below=1.0cm of tmds_enc, minimum width=4.8cm] (serdes) {
+    \textbf{OSERDESE2 5:1 DDR Serializers (\texttt{serializer.vhd})}\\
+    \scriptsize Master/Slave Cascaded for 10-bit Serialization\\
+    \scriptsize Fast Serial Clock: 125.0 MHz ($5\times$ Pixel Clock)\\
+    \scriptsize Output: 4$\times$ Serial Streams (\texttt{CLK}, \texttt{D0}, \texttt{D1}, \texttt{D2})
+};
+\draw[bus] (tmds_enc) -- node[right, font=\tiny] {10-bit Symbols} (serdes);
+
+% ==================== OBUFDS & HDMI ====================
+\node[box, fill=slate!20, draw=black, below=1.0cm of serdes, minimum width=3.8cm] (obuf) {
+    \textbf{Differential Drivers (\texttt{OBUFDS})}\\
+    \scriptsize Standard: \texttt{TMDS\_33}\\
+    \scriptsize Direct Physical HDMI Port (PYNQ-Z1)
+};
+\draw[bus] (serdes) -- (obuf);
+
+\end{tikzpicture}

@@ -1,0 +1,58 @@
+\chapter{Multicore Tiling and Spatial Parallelism}
+\label{chap:multicore_tiling}
+
+\section{Spatial Decomposition Methodology}
+A primary challenge in high-performance GPU design is resolving the "memory wall"---the bottleneck where multiple parallel compute pipelines compete for read and write bandwidth to a centralized frame buffer.
+
+To completely eliminate memory arbitration delays and bus contention, spGPU implements a \textbf{Tile-Based Spatial Partitioning} architecture. The full rendering canvas of $320 \times 240$ pixels is subdivided horizontally into 10 discrete, non-overlapping strips called \textit{Tiles}:
+\begin{equation}
+H_{\text{total}} = 240 \text{ lines}, \quad N_{\text{cores}} = 10 \implies H_{\text{tile}} = \frac{H_{\text{total}}}{N_{\text{cores}}} = \frac{240}{10} = 24 \text{ lines/tile}
+\end{equation}
+
+Each tile encompasses an area of $320 \times 24 = 7{,}680$ pixels. A dedicated compute core (\texttt{spCORE}) and a dedicated, isolated dual-port Block RAM memory block (\texttt{tile.vhd}) are assigned to each tile, as illustrated in Figure~\ref{fig:multicore_tiling}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\textwidth}{!}{
+    \input{figures/fig_multicore_tiling.tex}
+}
+\caption{spGPU Multicore Spatial Tiling and Display Scanning Architecture.}
+\label{fig:multicore_tiling}
+\end{figure}
+
+\section{Core-to-Tile Mapping and Coordinate Spaces}
+Each core $i \in [0, 9]$ operates on global coordinates during instruction decode, but writes exclusively into its local $320 \times 24$ tile VRAM. The vertical start offset of each tile is precomputed at compile time by the deferred constant function \texttt{calc\_y\_tile\_start} in \texttt{sp-pkg.vhd}:
+\begin{equation}
+Y_{\text{tile\_start}}(i) = i \times 24
+\end{equation}
+
+Table~\ref{tab:tiling_map} specifies the physical mapping between cores, tiles, scanlines, and memory allocations.
+
+\begin{table}[htbp]
+\centering
+\caption{Multicore Tile Mapping and Memory Footprint}
+\label{tab:tiling_map}
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+\textbf{Core ID} & \textbf{Assigned Tile} & \textbf{Global $Y$ Scanlines} & \textbf{Local $Y$ Range} & \textbf{VRAM Footprint ($2\times$ Buffer)} \\ \midrule
+\texttt{spCORE 0} & Tile 0 & $0 \dots 23$   & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 1} & Tile 1 & $24 \dots 47$  & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 2} & Tile 2 & $48 \dots 71$  & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 3} & Tile 3 & $72 \dots 95$  & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 4} & Tile 4 & $96 \dots 119$ & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 5} & Tile 5 & $120 \dots 143$ & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 6} & Tile 6 & $144 \dots 167$ & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 7} & Tile 7 & $168 \dots 191$ & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 8} & Tile 8 & $192 \dots 215$ & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\
+\texttt{spCORE 9} & Tile 9 & $216 \dots 239$ & $0 \dots 23$ & $15{,}360 \times 15$-bit ($230.4\text{ kb}$) \\ \midrule
+\textbf{Total} & \textbf{10 Tiles} & \textbf{0 \dots 239} & \textbf{--} & \textbf{153{,}600 words ($\approx 2.30\text{ Mb}$)} \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Throughput Scaling and Hardware Benefits}
+The architectural benefits of this spatial partitioning are significant:
+\begin{enumerate}
+    \item \textbf{True Parallel Memory Writes}: At any given clock cycle, all 10 cores can execute write operations simultaneously into their respective BRAM blocks. There are no shared arbiter stalls, crossbar multiplexers, or wait states on the write ports.
+    \item \textbf{Near-Linear Acceleration for Distributed Scenes}: When drawing objects that span multiple vertical regions of the display (such as the 10 bouncing spheres in the demo application), all 10 cores compute concurrently, yielding up to a $10\times$ speedup compared to a single-core implementation.
+    \item \textbf{Decoupled Display Readout}: The display controller reads sequential scanlines for video generation using Port B of the dual-port RAMs. Because each tile is an independent memory primitive, the video controller reads from only one tile at a time via the output multiplexer, while all 10 cores continue writing freely to their respective Port A interfaces.
+\end{enumerate}

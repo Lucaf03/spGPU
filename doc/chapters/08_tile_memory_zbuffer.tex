@@ -1,0 +1,99 @@
+\chapter{Tile Framebuffer, Double Buffering, and Hardware Z-Buffer}
+\label{chap:tile_memory}
+
+\section{Memory Architecture Overview}
+Each of the ten horizontal tiles is backed by an independent on-chip memory subsystem implemented in \texttt{tile.vhd}. The module integrates:
+\begin{itemize}
+    \item A \textbf{Color VRAM} organized as a True Dual-Port Block RAM supporting simultaneous write operations at $100.0\,\text{MHz}$ and display scan read operations at $25.0\,\text{MHz}$.
+    \item A \textbf{Ping-Pong Double Buffering} mechanism that isolates the active rendering target from the scanning display.
+    \item An integrated \textbf{Hardware Z-Buffer (Depth Buffer)} providing single-cycle depth testing per pixel.
+    \item A \textbf{Hardware Auto-Clear Engine} that resets the back buffer to background white and resets depth to maximum distance with zero CPU cycle consumption.
+    \item A \textbf{Multiplier-Free Address Generator} utilizing arithmetic bit shifts in place of DSP multipliers.
+\end{itemize}
+
+Figure~\ref{fig:tile_memory} illustrates the complete data-path and control architecture of \texttt{tile.vhd}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\textwidth}{!}{
+    \input{figures/fig_tile_memory.tex}
+}
+\caption{Microarchitecture of the Tile Framebuffer and Integrated Z-Buffer (\texttt{tile.vhd}).}
+\label{fig:tile_memory}
+\end{figure}
+
+\section{True Dual-Port BRAM Organization and Double Buffering}
+Each tile canvas has a resolution of $320 \times 24 = 7{,}680$ pixels. To support double buffering, the color VRAM stores two complete frames:
+\begin{equation}
+\text{VRAM Size} = 2 \times (320 \times 24) = 15{,}360 \text{ words} \times 15 \text{ bits}
+\end{equation}
+
+The ping-pong register \texttt{current\_fb} controls the base address offsets for read and write ports:
+\begin{itemize}
+    \item When \texttt{current\_fb = '0'}: The compute core writes into the \textbf{Back Buffer} (starting at address offset $7{,}680$), while the video display scans from the \textbf{Front Buffer} (starting at address offset $0$).
+    \item When \texttt{current\_fb = '1'}: The compute core writes into the \textbf{Back Buffer} (offset $0$), while the video display scans from the \textbf{Front Buffer} (offset $7{,}680$).
+\end{itemize}
+
+\section{Swap Protocol and Hardware Background Auto-Clear}
+The buffer swapping sequence is coordinated through a 4-state FSM in each tile:
+\begin{enumerate}
+    \item \textbf{State 0 (Drawing)}: Normal rendering into the back buffer. The tile monitors \texttt{fb\_swap}.
+    \item \textbf{State 1 (Wait for VSYNC)}: When all 10 cores have processed the \texttt{SWAP\_BUFFERS} instruction, the global signal \texttt{fb\_swap\_general} goes high. The FSM waits for the vertical blanking interval of the display (\texttt{v\_sync\_sync = '0'}). Once detected, \texttt{current\_fb} is toggled:
+    \begin{equation}
+    \texttt{current\_fb} \gets \neg \texttt{current\_fb}
+    \end{equation}
+    Because the pointer inversion occurs strictly during vertical blanking, screen tearing is completely eliminated.
+    \item \textbf{State 2 (Hardware Auto-Clear)}: During this state, an internal counter \texttt{clear\_cnt} increments from $0$ to $7{,}679$, sweeping the newly assigned back buffer. At each cycle, the hardware writes white ($15\text{-bit } \texttt{"111111111111111"}$) into VRAM and maximum distance ($\texttt{"1111"}$) into ZRAM.
+    \item \textbf{State 3 (Swap Complete)}: Asserts \texttt{swapped <= '1'} to inform \texttt{spEXEC} that the new buffer is clean and ready for rendering.
+\end{enumerate}
+
+\section{Integrated 4-Bit Hardware Z-Buffer (Depth Test)}
+To enable proper 2.5D and 3D visual layering without requiring the host CPU to sort polygons from back-to-front (Painter's Algorithm), each tile memory module embeds a dedicated 4-bit depth memory (\texttt{ZRAM}) of $7{,}680$ entries.
+
+\subsection{Single-Cycle Depth Comparator}
+On every clock cycle where a candidate pixel is asserted (\texttt{enb = '1'}), the hardware performs an instantaneous read-compare-write cycle:
+\begin{equation}
+Z_{\text{current}} = \text{ZRAM}[\text{address\_w}]
+\end{equation}
+\begin{equation}
+\texttt{z\_pass} = \begin{cases} 
+\text{'1'} & \text{if } Z_{\text{in}} \le Z_{\text{current}} \\ 
+\text{'0'} & \text{otherwise} 
+\end{cases}
+\end{equation}
+\begin{equation}
+\texttt{write\_enb} = \texttt{enb} \land \texttt{hit\_w} \land \texttt{z\_pass}
+\end{equation}
+
+If the candidate pixel's depth $Z_{\text{in}}$ is less than or equal to the current depth stored in \texttt{ZRAM} (indicating that the new primitive is closer to or coplanar with the viewer), \texttt{write\_enb} is asserted: the pixel color is committed to VRAM, and \texttt{ZRAM} is updated with $Z_{\text{in}}$. Otherwise, the write is suppressed, effectively culling obscured fragments at zero performance penalty.
+
+\section{Multiplier-Free Address Generation}
+In standard architectures, mapping 2D coordinates $(X, Y)$ to a linear 1D memory array requires integer multiplication:
+\begin{equation}
+\text{Addr} = Y_{\text{local}} \times 320 + X
+\end{equation}
+Implementing ten such multipliers in parallel would consume 10 to 20 DSP48 slices solely for address calculation. 
+
+spGPU circumvents this by decomposing $320$ into powers of two ($320 = 256 + 64 = 2^8 + 2^6$):
+\begin{equation}
+\text{Addr} = (Y_{\text{local}} \ll 8) + (Y_{\text{local}} \ll 6) + X
+\end{equation}
+
+Similarly, the tile vertical offset $Y_{\text{offset}} = \text{tile\_index} \times 24$ is decomposed as $24 = 16 + 8 = 2^4 + 2^3$:
+\begin{equation}
+Y_{\text{offset}} = (\text{tile\_index} \ll 4) + (\text{tile\_index} \ll 3)
+\end{equation}
+As shown in Listing~\ref{lst:tile_addr_math}, this enables the synthesizer to map address generation entirely to barrel shifters and carry-chain adders, conserving all FPGA DSP48 blocks for geometry and filtering.
+
+\begin{lstlisting}[language=VHDL, caption={Shift-and-Add Memory Address Generation in \texttt{tile.vhd}.}, label={lst:tile_addr_math}]
+-- Offset for the tile: tile_index * 24 = (tile_index * 16) + (tile_index * 8)
+y_offset <= shift_left(resize(unsigned(tile_index), N_PIXEL), 4) + 
+            shift_left(resize(unsigned(tile_index), N_PIXEL), 3);
+
+-- Local address calculation: Y_local * 320 + X = (Y_local * 256) + (Y_local * 64) + X
+address_w <= std_logic_vector(
+    shift_left(resize(y_w_local, 18), 8) + 
+    shift_left(resize(y_w_local, 18), 6) + 
+    resize(unsigned(x_w), 18)
+);
+\end{lstlisting}

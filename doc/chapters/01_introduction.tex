@@ -1,0 +1,56 @@
+\chapter{Introduction and Project Overview}
+\label{chap:introduction}
+
+\section{Academic Context and Project Scope}
+The \textbf{spGPU} (\textit{Sapienza Graphics Processing Unit}) project was conceived, designed, and implemented as an advanced digital design and hardware acceleration project for the \textit{Digital Signal Processing (DSP)} course at \textbf{Sapienza University of Rome}, authored by \textbf{Luca Filogna} and \textbf{Valerio Cilento}.
+
+The primary objective of the project is the full-stack design, algorithmic prototyping, Register-Transfer Level (RTL) implementation in VHDL, software simulation, and physical FPGA synthesis of a custom \textbf{2D/2.5D Multicore Graphics Processing Unit}. Rather than relying on commercial graphics IP cores or software-driven framebuffers, spGPU represents an entirely custom hardware architecture featuring parallel compute pipelines, distributed on-chip video memory, hardware rasterizers, an integrated depth buffer (Z-buffer), and a direct High-Definition Multimedia Interface (HDMI) physical transmitter.
+
+\section{Target Hardware Platform}
+The complete system is synthesized and validated on the \textbf{Digilent PYNQ-Z1} development board, built around the \textbf{Xilinx Zynq-7000 All-Programmable SoC (\texttt{XC7Z020-1CLG400C})}. The architecture takes full advantage of the heterogeneous SoC paradigm:
+\begin{itemize}
+    \item \textbf{Processing System (PS)}: Hosts a Dual-Core ARM Cortex-A9 MPCore microprocessor operating up to $667\,\text{MHz}$, responsible for running the application game loop, rigid-body physics simulation, collision detection, and issuing drawing commands.
+    \item \textbf{Programmable Logic (PL)}: Implements the spGPU multicore processor, the instruction dispatcher, the distributed dual-port Block RAM framebuffers, the hardware Z-buffer, the hardware performance monitor, and the HDMI physical layer.
+    \item \textbf{On-Chip Interconnect}: High-throughput AXI4 interfaces and an AXI Direct Memory Access (DMA) engine in Simple Mode that streams graphics instructions directly from the ARM memory space into the GPU instruction scheduler.
+\end{itemize}
+
+\section{Key Architectural Specifications}
+Table~\ref{tab:system_specs} summarizes the fundamental architectural parameters and performance metrics of the spGPU system.
+
+\begin{table}[htbp]
+\centering
+\caption{spGPU Hardware Architectural Specifications}
+\label{tab:system_specs}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Specification / Value} \\ \midrule
+Target Device & Xilinx Zynq-7000 SoC (\texttt{xc7z020clg400-1}) \\
+Development Board & Digilent PYNQ-Z1 \\
+Synthesis Toolflow & AMD Xilinx Vivado 2023.1 \\
+Host Processor (PS) & Dual-Core ARM Cortex-A9 (Bare-Metal C) \\
+GPU Clock Domain & $100.0\,\text{MHz}$ (Core compute, memory write, scheduler) \\
+Pixel Clock Domain & $25.0\,\text{MHz}$ (Display scanning, VGA timing generator) \\
+Serial Clock Domain & $125.0\,\text{MHz}$ ($5\times$ pixel clock, TMDS 5:1 DDR serialization) \\
+Logical Rendering Resolution & $320 \times 240$ pixels \\
+Physical HDMI Output & $640 \times 480$ @ $60\,\text{Hz}$ (Standard 480p VGA timing) \\
+Hardware Spatial Upscaler & $2\times$ Horizontal \& $2\times$ Vertical Nearest-Neighbor \\
+Color Representation & 15-bit RGB555 ($32{,}768$ colors), expanded to 24-bit RGB888 \\
+Depth Buffer (Z-Buffer) & Integrated 4-bit per pixel (16 discrete depth layers) \\
+Spatial Parallelism & 10 Independent Compute Cores (\texttt{spCORE}) \\
+Tiling Geometry & 10 Horizontal Tiles of $320 \times 24$ pixels each \\
+On-Chip VRAM Structure & 10 Distributed True Dual-Port Block RAM tiles \\
+Buffering Scheme & Double-Buffering (Ping-Pong VRAM) with VSYNC-lock \\
+Background Auto-Clear & Hardware zero-overhead back-buffer clearing upon swap \\
+Communication Protocol & AXI DMA (Memory-Mapped to Stream) + 64-bit spISA \\
+Hardware Telemetry & Integrated 100 MHz FPS counter with dual GIC interrupts \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Design Methodology and Toolflow}
+The engineering lifecycle followed for spGPU adopted a rigorous, verification-driven methodology:
+\begin{enumerate}
+    \item \textbf{Software Prototyping \& Golden Models}: High-level C/C++ algorithms were formulated for all primitive rasterization techniques (Bresenham lines, midpoint circles, scanline spans, and edge-equation half-space triangle filling) and OpenCV-based nearest-neighbor scaling.
+    \item \textbf{Visual RTL Co-Simulation}: A desktop graphical simulator was constructed using the \textit{Raylib} library, capable of consuming pixel dump files generated during VHDL testbench simulations and rendering the exact visual frame to verify circuit correctness before FPGA implementation.
+    \item \textbf{RTL Synthesis and Place-and-Route}: Synthesized using AMD Vivado 2023.1, enforcing multi-clock domain constraints (100 MHz core clock, 25 MHz pixel clock, 125 MHz serial clock) and optimizing logic placement across the 28nm Artix-7 fabric.
+    \item \textbf{Bare-Metal Integration}: Construction of memory-mapped peripheral drivers, interrupt service routines (ISRs) via the ARM Generic Interrupt Controller (GIC), and deployment via bootable SD card images (\texttt{BOOT.bin}).
+\end{enumerate}

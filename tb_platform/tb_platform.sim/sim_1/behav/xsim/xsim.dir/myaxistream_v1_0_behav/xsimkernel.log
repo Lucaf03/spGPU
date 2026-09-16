@@ -1,7 +1,0 @@
-Running: xsim.dir/myaxistream_v1_0_behav/xsimk -simmode gui -wdb myaxistream_v1_0_behav.wdb -simrunnum 0 -socket 40445
-Design successfully loaded
-Design Loading Memory Usage: 178988 KB (Peak: 179040 KB)
-Design Loading CPU Usage: 1200 ms
-Simulation completed
-Simulation Memory Usage: 260724 KB (Peak: 318256 KB)
-Simulation CPU Usage: 1220 ms
