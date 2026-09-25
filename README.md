@@ -1,6 +1,6 @@
 # spGPU: A Tiled Multicore 2D/2.5D Graphics Processing Unit on FPGA
 
-**spGPU** (*Sapienza GPU*) is a custom, high-performance 2D/2.5D multicore graphics processor implemented on a **Xilinx Zynq-7000 SoC FPGA** (Digilent PYNQ-Z1). Designed from the ground up for the Digital Signal Processing (DSP) course at **Sapienza University of Rome** by **Valerio Cilento** and **Luca Filogna**, the architecture features spatial multicore parallelism, dedicated hardware rasterizers, on-chip distributed video memory with hardware Z-buffering, and a direct HDMI physical transmitter.
+**spGPU** (*Sapienza GPU*) is a custom, high-performance 2D/2.5D multicore graphics processor implemented on a **Xilinx Zynq-7000 SoC FPGA** (Digilent PYNQ-Z1). Designed from the ground up for the Digital System Programming (DSP) course at **Sapienza University of Rome** by **Valerio Cilento** and **Luca Filogna**, the architecture features spatial multicore parallelism, dedicated hardware rasterizers, on-chip distributed video memory with hardware Z-buffering, and a direct HDMI physical transmitter.
 
 ---
 
@@ -135,4 +135,4 @@ spGPU/
 
 ## Authors & Acknowledgments
 
-Developed by **Luca Filogna** and **Valerio Cilento** for the *Digital Signal Processing* course at the Faculty of Information Engineering, Computer Science and Statistics, **Sapienza University of Rome**.
+Developed by **Luca Filogna** and **Valerio Cilento** for the *Digital System Programming* course at the Faculty of Information Engineering, Computer Science and Statistics, **Sapienza University of Rome**.
